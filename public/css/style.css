@@ -284,6 +284,13 @@ dialog.sheet[open] { display: flex; animation: sheet-up .28s cubic-bezier(.2,.9,
 .sheet-stepper { width: 132px; height: 54px; border-radius: 16px; flex: 0 0 auto; }
 .sheet-stepper button { width: 44px; }
 
+.stock-split { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; font-size: .78rem; font-weight: 600; color: var(--muted); }
+.stock-split span { display: inline-flex; align-items: center; gap: 4px; }
+.stock-split b { color: var(--text); }
+.stock-total { margin: -4px 0 10px; font-size: .88rem; }
+.move-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 12px; margin-bottom: 14px; border-radius: 14px; background: var(--surface-2); }
+.move-row .input { width: 84px; min-height: 38px; padding: 6px 10px; }
+
 /* skeleton loading */
 .skeleton .thumb, .skeleton .sk { background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
 .skeleton .sk { height: 12px; border-radius: 6px; margin-top: 8px; }
@@ -429,7 +436,7 @@ table.data input.inline { width: 96px; min-height: 38px; padding: 6px 10px; bord
 .inv-card .mini-thumb { width: 60px; height: 60px; border-radius: 14px; overflow: hidden; }
 .inv-card .quick { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
 .inv-card .quick label { display: flex; align-items: center; gap: 6px; font-weight: 700; color: var(--muted); }
-.inv-card .quick .input { width: 78px; min-height: 40px; padding: 6px 10px; }
+.inv-card .quick .input { width: 64px; min-height: 40px; padding: 6px 8px; }
 .inv-card .quick .btn { margin-left: auto; }
 .toggle { width: 20px; height: 20px; accent-color: var(--brand); }
 
@@ -470,8 +477,14 @@ dialog .dlg-foot { display: flex; gap: 8px; justify-content: flex-end; margin: 8
 .toast.show { opacity: 1; transform: translateX(-50%); }
 .toast.err { background: var(--danger); color: #fff; }
 
+.show-sm { display: none; }
 @media (max-width: 560px) {
   .hide-sm { display: none !important; }
+  .show-sm { display: inline; }
+  #invStats { gap: 8px; }
+  #invStats .stat { padding: 10px 12px; border-radius: 14px; }
+  #invStats .ic, #invStats .sub { display: none; }
+  #invStats .value { font-size: 1.15rem; }
   .section-head h2 { flex-basis: 100%; }
   .section-head .btn { flex: 1; }
 }

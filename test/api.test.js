@@ -135,3 +135,91 @@ test('deleting a category keeps its items and removes its offers', async (t) => 
   const discs = (await call('GET', '/api/admin/discounts')).data;
   assert.ok(discs.every((d) => d.categoryId !== c.id));
 });
+
+test('offline store stock: quick changes, moves, totals, and safe edits', async (t) => {
+  const { call, close } = await setup();
+  t.after(close);
+  await call('POST', '/api/admin/login', { password: 'admin123' });
+  const item = (await call('POST', '/api/admin/items', { name: 'Twin Fountain', price: '100', stock: 10, storeStock: 4 })).data;
+  assert.equal(item.storeStock, 4);
+  assert.equal(item.totalStock, 14);
+
+  let r = await call('PATCH', `/api/admin/items/${item.id}`, { addStoreStock: -3 }); // 3 sold at the store
+  assert.equal(r.data.storeStock, 1);
+  r = await call('PATCH', `/api/admin/items/${item.id}`, { moveToStore: 5 });
+  assert.deepEqual([r.data.stock, r.data.storeStock, r.data.totalStock], [5, 6, 11]);
+  r = await call('PATCH', `/api/admin/items/${item.id}`, { moveToStore: 99 });
+  assert.equal(r.status, 400); // can't move more than exists
+  r = await call('PATCH', `/api/admin/items/${item.id}`, { moveToStore: -2 });
+  assert.deepEqual([r.data.stock, r.data.storeStock], [7, 4]);
+
+  // Customers never see store stock.
+  const pub = (await call('GET', '/api/catalog')).data.items.find((i) => i.id === item.id);
+  assert.equal(pub.stock, 7);
+  assert.equal(pub.storeStock, undefined);
+
+  // Admin opens the form (online 7), a customer buys 2 meanwhile, admin adds 1 to store and saves.
+  const order = await call('POST', '/api/orders', { items: [{ itemId: item.id, qty: 2 }] });
+  assert.equal(order.status, 201);
+  r = await call('PUT', `/api/admin/items/${item.id}`, {
+    name: 'Twin Fountain', price: '100', stock: 7, storeStock: 5, stockWas: 7, storeStockWas: 4,
+  });
+  assert.deepEqual([r.data.stock, r.data.storeStock], [5, 5]); // the online sale is not lost
+
+  const dash = (await call('GET', '/api/admin/dashboard')).data;
+  assert.ok(dash.stockValue.store >= 5);
+  assert.equal(dash.stockValue.units, dash.stockValue.online + dash.stockValue.store);
+
+  const csv = await call('GET', '/api/admin/inventory.csv');
+  assert.match(csv.data, /"Twin Fountain","","box","100.00","","5","5","10","1000.00","Yes"/);
+});
+
+test('backup download and database info', async (t) => {
+  const { call, close } = await setup();
+  t.after(close);
+  await call('POST', '/api/admin/login', { password: 'admin123' });
+  const info = (await call('GET', '/api/admin/db-info')).data;
+  assert.equal(info.counts.items, 11);
+  const backup = (await call('GET', '/api/admin/backup.json')).data;
+  assert.equal(backup.items.length, 11);
+  assert.ok(backup.settings.length > 5);
+  assert.ok(!backup.settings.some((s) => s.key === 'admin_password'));
+});
+
+test('upgrading an existing database keeps every row and adds store stock', async () => {
+  const { createClient } = require('@libsql/client');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-mig-'));
+  const url = `file:${path.join(dir, 'old.db')}`;
+  // A database as created by the previous version (no store_stock column).
+  const old = createClient({ url });
+  await old.batch([
+    'CREATE TABLE categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0)',
+    `CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+      category_id INTEGER, unit TEXT NOT NULL DEFAULT 'box', price INTEGER NOT NULL, mrp INTEGER, stock INTEGER NOT NULL DEFAULT 0,
+      low_stock INTEGER NOT NULL DEFAULT 5, image TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+    'CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)',
+    "INSERT INTO settings VALUES ('shop_name', 'My Real Shop'), ('upi_id', 'real@upi')",
+    "INSERT INTO items (name, price, stock) VALUES ('Real Item A', 5000, 17), ('Real Item B', 9900, 3)",
+  ], 'write');
+  old.close();
+
+  const db = await openDb(url);
+  const items = await db.all('SELECT name, stock, store_stock FROM items ORDER BY id');
+  assert.deepEqual(items, [
+    { name: 'Real Item A', stock: 17, store_stock: 0 },
+    { name: 'Real Item B', stock: 3, store_stock: 0 },
+  ]);
+  const s = await db.get("SELECT value FROM settings WHERE key = 'shop_name'");
+  assert.equal(s.value, 'My Real Shop'); // existing settings are never overwritten
+  // Running start-up again is harmless.
+  db.client.close();
+  const again = await openDb(url);
+  assert.equal((await again.all('SELECT * FROM items')).length, 2);
+  again.client.close();
+});
+
+test('sample items are never added to a hosted database unless asked', async () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'boot.js'), 'utf8');
+  assert.match(src, /SEED_DEMO === '1' \|\| \(local && process\.env\.SEED_DEMO !== '0'\)/);
+});

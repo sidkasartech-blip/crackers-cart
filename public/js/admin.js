@@ -104,11 +104,12 @@
       stat('s1', '📈', "Today's sales", money(d.today.sales), `${d.today.orders} bills · ${money(d.today.paid)} paid`),
       stat('s2', '⏳', 'Awaiting payment', money(d.pending.v), `${d.pending.n} bills`),
       stat('s3', '💰', 'Total collected', money(d.allTime.sales), `${d.allTime.orders} paid bills`),
-      stat('s4', '📦', 'Stock on hand', `${d.stockValue.units}`, `worth ${money(d.stockValue.v)}`),
+      stat('s4', '📦', 'Total stock', `${d.stockValue.units}`, `${d.stockValue.online} online · ${d.stockValue.store} in store · worth ${money(d.stockValue.v)}`),
     ].join('');
     $('#lowStock').innerHTML = d.lowStock.length
-      ? '<thead><tr><th>Item</th><th class="r">Left</th><th></th></tr></thead><tbody>' + d.lowStock.map((i) => `<tr>
+      ? '<thead><tr><th>Item</th><th class="r">Online</th><th class="r">Store</th><th></th></tr></thead><tbody>' + d.lowStock.map((i) => `<tr>
           <td>${esc(i.name)}</td><td class="r"><span class="badge ${i.stock ? 'warn' : 'danger'}">${i.stock}</span></td>
+          <td class="r num">${i.storeStock}</td>
           <td class="r"><button class="btn btn-sm" data-restock="${i.id}">+ Restock</button></td></tr>`).join('') + '</tbody>'
       : '<tbody><tr><td class="muted">All items are well stocked.</td></tr></tbody>';
     $('#topItems').innerHTML = d.topItems.length
@@ -119,7 +120,7 @@
   $('#lowStock').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-restock]');
     if (!b) return;
-    const n = prompt('How many units to add?', '10');
+    const n = prompt('How many units to add to online stock?', '10');
     if (!n || !(Number(n) > 0)) return;
     await api(`/api/admin/items/${b.dataset.restock}`, { method: 'PATCH', body: { addStock: Math.floor(Number(n)) } });
     toast('Stock updated');
@@ -178,21 +179,34 @@
   function stockBadge(i) {
     return `<span class="badge ${i.stock === 0 ? 'danger' : i.stock <= i.lowStock ? 'warn' : 'ok'}">${i.stock}</span>`;
   }
+  function renderInvStats() {
+    const t = state.items.reduce((a, i) => ({ online: a.online + i.stock, store: a.store + i.storeStock, value: a.value + i.totalStock * i.price }), { online: 0, store: 0, value: 0 });
+    const stat = (cls, icon, label, value, sub = '') => `<div class="card stat ${cls}"><div class="ic">${icon}</div><div class="label">${label}</div><div class="value num">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
+    $('#invStats').innerHTML = [
+      stat('s1', '🌐', 'Online stock', t.online, 'what customers can buy'),
+      stat('s2', '🏪', 'Store stock', t.store, 'at the offline shop'),
+      stat('s3', '📦', 'Total stock', t.online + t.store, `${state.items.length} items`),
+      stat('s4', '💰', 'Total value', money(t.value), 'at current rates'),
+    ].join('');
+  }
   function renderItems() {
+    renderInvStats();
     const items = filteredItems();
     if (!items.length) {
       const empty = `<div class="empty">${state.items.length ? 'No items match.' : 'No items yet. Tap “Add item” to create your first one.'}</div>`;
-      $('#itemRows').innerHTML = `<tr><td colspan="8">${empty}</td></tr>`;
+      $('#itemRows').innerHTML = `<tr><td colspan="10">${empty}</td></tr>`;
       $('#itemCards').innerHTML = empty;
       return;
     }
     $('#itemRows').innerHTML = items.map((i) => `<tr data-id="${i.id}">
         <td><div class="mini-thumb thumb">${thumbHtml(i)}</div></td>
-        <td><b>${esc(i.name)}</b><div class="small muted">per ${esc(i.unit)}</div></td>
-        <td>${esc(catName(i.categoryId))}</td>
+        <td><b>${esc(i.name)}</b><div class="small muted">${esc(catName(i.categoryId))} · per ${esc(i.unit)}</div></td>
         <td class="r"><input class="input inline num" type="number" min="0" step="0.01" value="${rupees(i.price)}" data-quick="price" aria-label="Rate"></td>
         <td class="r">${stockBadge(i)}</td>
-        <td><input class="input inline num" type="number" step="1" placeholder="+0" data-quick="addStock" aria-label="Add stock"></td>
+        <td class="r num">${i.storeStock}</td>
+        <td class="r num"><b>${i.totalStock}</b></td>
+        <td><input class="input inline num" type="number" step="1" placeholder="±0" data-quick="addStock" aria-label="Change online stock"></td>
+        <td><input class="input inline num" type="number" step="1" placeholder="±0" data-quick="addStoreStock" aria-label="Change store stock"></td>
         <td><input type="checkbox" ${i.active ? 'checked' : ''} data-quick="active" aria-label="Visible in shop" class="toggle"></td>
         <td class="r"><button class="btn btn-sm" data-edit="${i.id}">Edit</button></td>
       </tr>`).join('');
@@ -200,10 +214,13 @@
         <div class="mini-thumb thumb">${thumbHtml(i)}</div>
         <div>
           <div style="display:flex;gap:8px;align-items:start"><b style="flex:1">${esc(i.name)}</b>${i.active ? '' : '<span class="badge">Hidden</span>'}</div>
-          <div class="small muted">${esc(catName(i.categoryId))} · Stock ${stockBadge(i)}</div>
+          <div class="small muted">${esc(catName(i.categoryId))} · ₹${rupees(i.price)} / ${esc(i.unit)}</div>
+          <div class="stock-split">
+            <span>Online ${stockBadge(i)}</span><span>Store <span class="badge">${i.storeStock}</span></span><span>Total <b class="num">${i.totalStock}</b></span>
+          </div>
           <div class="quick">
-            <label class="small">₹ <input class="input num" type="number" min="0" step="0.01" value="${rupees(i.price)}" data-quick="price" aria-label="Rate"></label>
-            <label class="small">+ <input class="input num" type="number" step="1" placeholder="stock" data-quick="addStock" aria-label="Add stock"></label>
+            <label class="small">Online <input class="input num" type="number" step="1" placeholder="±0" data-quick="addStock" aria-label="Change online stock"></label>
+            <label class="small">Store <input class="input num" type="number" step="1" placeholder="±0" data-quick="addStoreStock" aria-label="Change store stock"></label>
             <button class="btn btn-sm" data-edit="${i.id}">Edit</button>
           </div>
         </div>
@@ -219,11 +236,15 @@
     const id = input.closest('[data-id]').dataset.id;
     const field = input.dataset.quick;
     const value = field === 'active' ? input.checked : input.value;
-    if (field === 'addStock' && !Number(value)) return;
+    if ((field === 'addStock' || field === 'addStoreStock') && !Number(value)) return;
     try {
       const updated = await api(`/api/admin/items/${id}`, { method: 'PATCH', body: { [field]: value } });
       state.items = state.items.map((i) => (i.id === updated.id ? updated : i));
-      toast(field === 'addStock' ? `Stock now ${updated.stock}` : field === 'price' ? `Rate set to ${money(updated.price)}` : updated.active ? 'Now visible in shop' : 'Hidden from shop');
+      toast({
+        addStock: `Online stock now ${updated.stock} (total ${updated.totalStock})`,
+        addStoreStock: `Store stock now ${updated.storeStock} (total ${updated.totalStock})`,
+        price: `Rate set to ${money(updated.price)}`,
+      }[field] || (updated.active ? 'Now visible in shop' : 'Hidden from shop'));
       renderItems();
     } catch (err) { toast(err.message, true); renderItems(); }
   });
@@ -249,15 +270,47 @@
     f.categoryId.innerHTML = '<option value="">No category</option>' + catOptions(item ? item.categoryId : $('#itemCatFilter').value);
     if (item) {
       f.name.value = item.name; f.description.value = item.description; f.unit.value = item.unit;
-      f.price.value = rupees(item.price); f.mrp.value = rupees(item.mrp); f.stock.value = item.stock;
+      f.price.value = rupees(item.price); f.mrp.value = rupees(item.mrp);
+      f.stock.value = item.stock; f.storeStock.value = item.storeStock;
       f.lowStock.value = item.lowStock; f.sortOrder.value = item.sortOrder; f.active.checked = item.active;
     }
+    $('#moveQty').value = '';
+    updateStockTotal();
     $('#imgUrl').value = item && item.image && !item.image.startsWith('/img/') ? item.image : '';
     setPreview(item ? item.image : '');
     $('#itemDelete').classList.toggle('hidden', !item);
     showErr($('#itemErr'), '');
     $('#itemDlg').showModal();
   }
+
+  function updateStockTotal() {
+    const f = $('#itemForm');
+    const on = Math.max(0, Math.floor(Number(f.stock.value) || 0));
+    const st = Math.max(0, Math.floor(Number(f.storeStock.value) || 0));
+    $('#stockTotal').innerHTML = `Total stock: <b class="num">${on + st}</b> <span class="muted">(${on} online + ${st} in store)</span>`;
+  }
+  $('#itemForm').stock.addEventListener('input', updateStockTotal);
+  $('#itemForm').storeStock.addEventListener('input', updateStockTotal);
+  // Moving only shifts numbers between the two fields; the total stays the same. Saved with the form.
+  $('#itemForm').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-move]');
+    if (!b) return;
+    const f = $('#itemForm');
+    const n = Math.floor(Number($('#moveQty').value) || 0);
+    if (n <= 0) { toast('Enter how many to move', true); $('#moveQty').focus(); return; }
+    const on = Math.floor(Number(f.stock.value) || 0);
+    const st = Math.floor(Number(f.storeStock.value) || 0);
+    if (b.dataset.move === 'toStore') {
+      if (n > on) { toast(`Only ${on} in online stock`, true); return; }
+      f.stock.value = on - n; f.storeStock.value = st + n;
+    } else {
+      if (n > st) { toast(`Only ${st} in the store`, true); return; }
+      f.stock.value = on + n; f.storeStock.value = st - n;
+    }
+    $('#moveQty').value = '';
+    updateStockTotal();
+    toast(`Moved ${n}. Press Save to keep it.`);
+  });
 
   /** Shrinks a photo in the browser so uploads are fast even on mobile data. */
   function resizeImage(file, max = 640) {
@@ -306,6 +359,9 @@
 
   bindDialogForm($('#itemForm'), async () => {
     const body = { ...formData($('#itemForm')), image };
+    // Send what the stock was when the form opened, so the server applies only our change
+    // and doesn't wipe out online orders that happened meanwhile.
+    if (editing) Object.assign(body, { stockWas: editing.stock, storeStockWas: editing.storeStock });
     if (editing) await api(`/api/admin/items/${editing.id}`, { method: 'PUT', body });
     else await api('/api/admin/items', { method: 'POST', body });
     toast(editing ? 'Item updated' : 'Item added');
@@ -466,7 +522,16 @@
   }, $('#discErr'));
 
   /* ---------- settings ---------- */
+  async function loadDbInfo() {
+    try {
+      const d = await api('/api/admin/db-info');
+      const c = d.counts;
+      $('#dbInfo').innerHTML = `<div>Database: <b>${esc(d.where)}</b></div>
+        <div class="muted">${c.items} items · ${c.categories} categories · ${c.offers} offers · ${c.bills} bills · ${c.photos} photos</div>`;
+    } catch (e) { $('#dbInfo').textContent = e.message; }
+  }
   async function loadSettings() {
+    loadDbInfo();
     const s = await api('/api/admin/settings');
     const f = $('#settingsForm');
     for (const el of f.elements) {

@@ -55,6 +55,7 @@ function itemOut(row) {
   return {
     id: row.id, name: row.name, description: row.description, categoryId: row.category_id,
     unit: row.unit, price: row.price, mrp: row.mrp, stock: row.stock, lowStock: row.low_stock,
+    storeStock: row.store_stock ?? 0, totalStock: row.stock + (row.store_stock ?? 0),
     image: row.image, active: !!row.active, sortOrder: row.sort_order, updatedAt: row.updated_at,
   };
 }
@@ -80,7 +81,7 @@ function upiUri(settings, order) {
 
 /* ---------- app ---------- */
 
-function createApp(db) {
+function createApp(db, { dbUrl = '' } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', true);
@@ -140,7 +141,7 @@ function createApp(db) {
     res.json({
       settings: pub,
       categories,
-      items: items.map(itemOut).map(({ lowStock, active, sortOrder, updatedAt, ...rest }) => rest),
+      items: items.map(itemOut).map(({ lowStock, active, sortOrder, updatedAt, storeStock, totalStock, ...rest }) => rest),
       offers,
     });
   });
@@ -253,7 +254,8 @@ function createApp(db) {
       db.all(`SELECT oi.name, SUM(oi.qty) AS qty, SUM(oi.total) AS amount
         FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE o.status != 'cancelled'
         GROUP BY oi.name ORDER BY qty DESC LIMIT 5`),
-      db.get('SELECT COALESCE(SUM(stock * price),0) AS v, COALESCE(SUM(stock),0) AS units FROM items WHERE active = 1'),
+      db.get(`SELECT COALESCE(SUM((stock + store_stock) * price),0) AS v, COALESCE(SUM(stock + store_stock),0) AS units,
+        COALESCE(SUM(stock),0) AS online, COALESCE(SUM(store_stock),0) AS store FROM items`),
     ]);
     res.json({ today: { ...todayRow, paid: paidToday.v }, pending, allTime, lowStock: lowStock.map(itemOut), topItems, stockValue });
   });
@@ -302,7 +304,6 @@ function createApp(db) {
       str(b.unit, 20) || 'box',
       toPaise(b.price, { field: 'Rate' }),
       toPaise(b.mrp, { allowNull: true, field: 'MRP' }),
-      toInt(b.stock ?? 0, { field: 'Stock' }),
       toInt(b.lowStock ?? 5, { field: 'Low-stock alert' }),
       str(b.image, 2000),
       b.active === undefined ? 1 : bool(b.active),
@@ -312,20 +313,43 @@ function createApp(db) {
   const getItem = async (id) => itemOut(await db.get('SELECT * FROM items WHERE id = ?', [id]));
 
   admin.post('/items', async (req, res) => {
-    const info = await db.run(`INSERT INTO items (name, description, category_id, unit, price, mrp, stock, low_stock, image, active, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, readItem(req.body || {}));
+    const b = req.body || {};
+    const info = await db.run(`INSERT INTO items (name, description, category_id, unit, price, mrp, low_stock, image, active, sort_order, stock, store_stock)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [...readItem(b), toInt(b.stock ?? 0, { field: 'Online stock' }), toInt(b.storeStock ?? 0, { field: 'Store stock' })]);
     res.status(201).json(await getItem(info.lastInsertRowid));
   });
 
+  /**
+   * Stock edits are applied as a change relative to what the admin saw when they opened the form
+   * (stockWas / storeStockWas). That way an online order placed while the form was open is not
+   * silently overwritten when the admin saves.
+   */
   admin.put('/items/:id', async (req, res) => {
     const id = Number(req.params.id);
-    const info = await db.run(`UPDATE items SET name=?, description=?, category_id=?, unit=?, price=?, mrp=?, stock=?, low_stock=?,
-      image=?, active=?, sort_order=?, updated_at=datetime('now') WHERE id=?`, [...readItem(req.body || {}), id]);
+    const b = req.body || {};
+    const fields = readItem(b);
+    const stock = toInt(b.stock ?? 0, { field: 'Online stock' });
+    const store = toInt(b.storeStock ?? 0, { field: 'Store stock' });
+    const relative = b.stockWas !== undefined && b.storeStockWas !== undefined;
+    const sql = relative
+      ? `UPDATE items SET name=?, description=?, category_id=?, unit=?, price=?, mrp=?, low_stock=?, image=?, active=?, sort_order=?,
+          stock = MAX(0, stock + ?), store_stock = MAX(0, store_stock + ?), updated_at=datetime('now') WHERE id=?`
+      : `UPDATE items SET name=?, description=?, category_id=?, unit=?, price=?, mrp=?, low_stock=?, image=?, active=?, sort_order=?,
+          stock = ?, store_stock = ?, updated_at=datetime('now') WHERE id=?`;
+    const stockArgs = relative
+      ? [stock - toInt(b.stockWas, { min: 0 }), store - toInt(b.storeStockWas, { min: 0 })]
+      : [stock, store];
+    const info = await db.run(sql, [...fields, ...stockArgs, id]);
     if (!info.changes) throw new HttpError(404, 'Item not found');
     res.json(await getItem(id));
   });
 
-  // Quick inline edits from the inventory list: any of price, stock, addStock, active.
+  /**
+   * Quick inline edits from the inventory list. Any of:
+   *  price, active, addStock (online ±n), addStoreStock (store ±n),
+   *  moveToStore (n > 0 moves online -> store, n < 0 moves store -> online).
+   */
   admin.patch('/items/:id', async (req, res) => {
     const id = Number(req.params.id);
     const b = req.body || {};
@@ -333,14 +357,17 @@ function createApp(db) {
     if (!row) throw new HttpError(404, 'Item not found');
     const price = b.price !== undefined ? toPaise(b.price, { field: 'Rate' }) : row.price;
     const active = b.active !== undefined ? bool(b.active) : row.active;
-    if (b.addStock !== undefined) {
-      // Relative update so two people restocking at once don't overwrite each other.
-      const add = toInt(b.addStock, { min: -1e9, field: 'Stock change' });
-      await db.run("UPDATE items SET price=?, stock=MAX(0, stock + ?), active=?, updated_at=datetime('now') WHERE id=?", [price, add, active, id]);
-    } else {
-      const stock = b.stock !== undefined ? toInt(b.stock, { field: 'Stock' }) : row.stock;
-      await db.run("UPDATE items SET price=?, stock=?, active=?, updated_at=datetime('now') WHERE id=?", [price, stock, active, id]);
+    const addOnline = b.addStock !== undefined ? toInt(b.addStock, { min: -1e9, field: 'Stock change' }) : 0;
+    const addStore = b.addStoreStock !== undefined ? toInt(b.addStoreStock, { min: -1e9, field: 'Store stock change' }) : 0;
+    const move = b.moveToStore !== undefined ? toInt(b.moveToStore, { min: -1e9, field: 'Quantity to move' }) : 0;
+    if (move) {
+      // Moves must not create or destroy stock, so refuse rather than clamp.
+      const r = await db.run(`UPDATE items SET stock = stock - ?, store_stock = store_stock + ?, updated_at=datetime('now')
+        WHERE id = ? AND stock - ? >= 0 AND store_stock + ? >= 0`, [move, move, id, move, move]);
+      if (!r.changes) throw bad(move > 0 ? `Only ${row.stock} in online stock to move` : `Only ${row.store_stock} in the store to move`);
     }
+    await db.run(`UPDATE items SET price = ?, active = ?, stock = MAX(0, stock + ?), store_stock = MAX(0, store_stock + ?),
+      updated_at = datetime('now') WHERE id = ?`, [price, active, addOnline, addStore, id]);
     res.json(await getItem(id));
   });
 
@@ -466,6 +493,51 @@ function createApp(db) {
       await t.run("UPDATE orders SET status = ?, paid_at = CASE WHEN ? = 'paid' THEN datetime('now') ELSE NULL END WHERE id = ?", [status, status, id]);
     });
     res.json({ ok: true });
+  });
+
+  /* ----- data safety: which database, counts, backup ----- */
+  admin.get('/db-info', async (req, res) => {
+    let where = 'Local file on this server';
+    if (!dbUrl.startsWith('file:')) {
+      try { where = new URL(dbUrl.replace(/^libsql:/, 'https:')).host; } catch { where = 'Hosted database'; }
+    }
+    const c = await db.get(`SELECT (SELECT COUNT(*) FROM items) AS items, (SELECT COUNT(*) FROM categories) AS categories,
+      (SELECT COUNT(*) FROM discounts) AS offers, (SELECT COUNT(*) FROM orders) AS bills, (SELECT COUNT(*) FROM images) AS photos`);
+    res.json({ where, counts: c });
+  });
+
+  // Full download of the shop's data (everything except login secrets).
+  admin.get('/backup.json', async (req, res) => {
+    const [settings, categories, items, discounts, orders, orderItems, images] = await Promise.all([
+      db.all("SELECT key, value FROM settings WHERE key NOT IN ('admin_password')"),
+      db.all('SELECT * FROM categories'), db.all('SELECT * FROM items'), db.all('SELECT * FROM discounts'),
+      db.all('SELECT * FROM orders'), db.all('SELECT * FROM order_items'),
+      db.all('SELECT id, mime, data, created_at FROM images'),
+    ]);
+    const backup = {
+      app: 'crackers-cart', version: 1, createdAt: new Date().toISOString(),
+      settings, categories, items, discounts, orders, orderItems,
+      images: images.map((i) => ({ ...i, data: Buffer.from(i.data).toString('base64') })),
+    };
+    const stamp = new Date(Date.now() + TZ_OFFSET_MIN * 60000).toISOString().slice(0, 16).replace(/[:T]/g, '-');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="shop-backup-${stamp}.json"`);
+    res.send(JSON.stringify(backup));
+  });
+
+  admin.get('/inventory.csv', async (req, res) => {
+    const rows = await db.all(`SELECT i.name, c.name AS category, i.unit, i.price, i.mrp, i.stock, i.store_stock, i.active
+      FROM items i LEFT JOIN categories c ON c.id = i.category_id ORDER BY c.sort_order, c.name, i.sort_order, i.name`);
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rupees = (p) => (p == null ? '' : (p / 100).toFixed(2));
+    const lines = [['Item', 'Category', 'Unit', 'Rate', 'MRP', 'Online stock', 'Store stock', 'Total stock', 'Total value', 'Visible online'].map(esc).join(',')];
+    for (const r of rows) {
+      const total = r.stock + r.store_stock;
+      lines.push([r.name, r.category, r.unit, rupees(r.price), rupees(r.mrp), r.stock, r.store_stock, total, rupees(total * r.price), r.active ? 'Yes' : 'No'].map(esc).join(','));
+    }
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="inventory.csv"');
+    res.send('\ufeff' + lines.join('\n'));
   });
 
   /* ----- settings ----- */

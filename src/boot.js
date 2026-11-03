@@ -27,8 +27,11 @@ function dbConfig() {
 async function boot() {
   const { url, authToken } = dbConfig();
   const db = await openDb(url, authToken);
-  if (process.env.SEED_DEMO !== '0') await seedDemo(db);
-  return createApp(db);
+  // Sample items are only for trying the app locally. On a hosted database they are never added
+  // unless SEED_DEMO=1, so a misconfigured/empty database can't look like your catalog was replaced.
+  const local = url.startsWith('file:');
+  if (process.env.SEED_DEMO === '1' || (local && process.env.SEED_DEMO !== '0')) await seedDemo(db);
+  return createApp(db, { dbUrl: url });
 }
 
 module.exports = { boot };

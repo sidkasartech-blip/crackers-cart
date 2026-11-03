@@ -154,7 +154,29 @@ async function openDb(url, authToken) {
   seedSettings.push({ sql: 'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', args: ['password_is_default', process.env.ADMIN_PASSWORD ? '0' : '1'] });
   // One round trip for the whole schema + defaults (matters on serverless cold starts).
   await client.batch([...SCHEMA, ...seedSettings], 'write');
+  await migrate(client);
   return db;
+}
+
+/**
+ * Additive-only upgrades for databases created by older versions.
+ * Rule: migrations may ADD tables/columns; they never drop, rename or rewrite existing data.
+ */
+const MIGRATIONS = [
+  { table: 'items', column: 'store_stock', sql: 'ALTER TABLE items ADD COLUMN store_stock INTEGER NOT NULL DEFAULT 0' },
+];
+async function migrate(client) {
+  for (const m of MIGRATIONS) {
+    const info = await client.execute(`PRAGMA table_info(${m.table})`);
+    const nameIdx = info.columns.indexOf('name');
+    if (info.rows.some((r) => r[nameIdx] === m.column)) continue;
+    try {
+      await client.execute(m.sql);
+    } catch (err) {
+      // Another server instance may have added it at the same moment.
+      if (!/duplicate column/i.test(String(err.message))) throw err;
+    }
+  }
 }
 
 async function getSettings(db) {

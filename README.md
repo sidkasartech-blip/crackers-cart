@@ -21,7 +21,7 @@ npm start
 - Shop: http://localhost:3000
 - Admin: http://localhost:3000/admin — default password `admin123` (change it in **Settings**, or start with `ADMIN_PASSWORD=yourpass npm start`)
 
-The first start loads a small sample catalog and offers so you can try it right away. Set `SEED_DEMO=0` to start empty. Delete or edit the sample items from the admin panel when you add your own.
+When running locally, the first start loads a small sample catalog so you can try it right away (`SEED_DEMO=0` to start empty). Hosted databases never get sample items unless you set `SEED_DEMO=1`.
 
 | Env var | Default | What it does |
 |---|---|---|
@@ -30,7 +30,7 @@ The first start loads a small sample catalog and offers so you can try it right 
 | `cc_TURSO_DATABASE_URL` / `cc_TURSO_AUTH_TOKEN` | — | Hosted Turso database instead of the local file (required on Vercel). Unprefixed `TURSO_*` names also work. |
 | `SHOP_TZ_OFFSET_MINUTES` | `330` | Shop's timezone offset from UTC, used for "today" on the dashboard (330 = India) |
 | `ADMIN_PASSWORD` | `admin123` | Initial admin password (first run only) |
-| `SEED_DEMO` | on | `0` to skip the sample catalog |
+| `SEED_DEMO` | on locally, off when hosted | `1` to add the sample catalog to an empty database, `0` to never add it |
 
 ## First-time setup (5 minutes)
 
@@ -49,6 +49,22 @@ The first start loads a small sample catalog and offers so you can try it right 
 - **Cancel a bill**: its items go back into stock automatically.
 - **Pause the shop**: untick *Taking orders* in Settings.
 - **Export**: Bills → *Export CSV* for accounts.
+
+## Online stock and offline store stock
+
+Every item has two stock counts:
+
+- **Online**: what customers can buy on the website. Online bills reduce it automatically, and cancelling a bill puts it back.
+- **Store**: stock at your offline shop. Customers never see this number.
+
+The Inventory tab shows Online, Store and **Total** for every item, plus overall totals and value. Type into **+ Online** or **+ Store** to add stock, or a negative number to reduce it (e.g. `-5` when 5 boxes sell at the counter). Open **Edit** to move stock between the two (*Online → Store* or *Store → Online*); the total stays the same. **Export** downloads the inventory as a spreadsheet (CSV).
+
+## Keeping your data safe
+
+- Updates never delete or rewrite your data. Database changes only ever *add* new tables or columns.
+- On a hosted database, sample items are **never** added unless you set `SEED_DEMO=1`. If you ever see the sample items (Baby Rocket, Pencil Crackers…) on your live site, the app is connected to a different, empty database. Your data has not been changed. Check the database settings in Vercel.
+- **Settings → Your data & backups** shows which database the app is connected to and how many items, bills and photos it holds. Check it after every deployment.
+- **Download full backup** saves everything (items, stock, photos, offers, bills, settings) as one file. Take one before big changes.
 
 ## How discounts work
 
@@ -70,7 +86,7 @@ Vercel doesn't keep files between requests, so the app stores its data (includin
 1. Go to [vercel.com/new](https://vercel.com/new) → import the `crackers-cart` GitHub repo → **Deploy**. Leave every build setting at its default; `vercel.json` handles them. The first deploy will show a "No database configured" error. That's expected.
 2. In the Vercel project, open **Storage → Create Database → Turso** (from the Marketplace) and connect it to the project. This adds `cc_TURSO_DATABASE_URL` and `cc_TURSO_AUTH_TOKEN` (or the same names without the `cc_` prefix — both work).
    *Or* create a database at [turso.tech](https://turso.tech) yourself and add those two variables under **Settings → Environment Variables**.
-3. Optional but recommended: add `ADMIN_PASSWORD` under **Settings → Environment Variables** so the admin password isn't `admin123` from the start. To start with an empty catalog, also add `SEED_DEMO` = `0`.
+3. Optional but recommended: add `ADMIN_PASSWORD` under **Settings → Environment Variables** so the admin password isn't `admin123` from the start.
 4. **Deployments → ⋯ → Redeploy**. Open `https://<your-app>.vercel.app/admin`, set your UPI ID, and print the **Store QR**.
 
 Tables are created on the first request. To move from a local install to Turso, you can upload your local file with `turso db create shop --from-file data/shop.db`.
