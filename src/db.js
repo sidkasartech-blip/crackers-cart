@@ -112,6 +112,7 @@ const DEFAULT_SETTINGS = {
   delivery_free_above: '0',    // ₹ order value for free delivery (0 = never free unless charge is 0)
   delivery_note: '',           // shown at checkout, e.g. "We deliver within 5 km"
   online_sells_store_stock: '1', // online orders may use offline-store stock once online stock runs out
+  cash_enabled: '1',             // customers may choose to pay in cash (at the counter / on delivery)
 };
 
 /** libsql rows -> plain objects */
@@ -186,6 +187,9 @@ const MIGRATIONS = [
   // Which stock each sold line came from, so cancelling puts it back in the right place. 0/0 = older bill (all online).
   { table: 'order_items', column: 'from_online', sql: 'ALTER TABLE order_items ADD COLUMN from_online INTEGER NOT NULL DEFAULT 0' },
   { table: 'order_items', column: 'from_store', sql: 'ALTER TABLE order_items ADD COLUMN from_store INTEGER NOT NULL DEFAULT 0' },
+  // How the customer said they'd pay, and how the bill was actually paid ('upi' / 'cash'; '' = not recorded).
+  { table: 'orders', column: 'pay_pref', sql: "ALTER TABLE orders ADD COLUMN pay_pref TEXT NOT NULL DEFAULT 'upi'" },
+  { table: 'orders', column: 'paid_by', sql: "ALTER TABLE orders ADD COLUMN paid_by TEXT NOT NULL DEFAULT ''" },
 ];
 async function migrate(db) {
   const client = db.client;

@@ -75,6 +75,14 @@ With **Settings → Stock → Online shop can also sell offline-store stock** sw
 
 At checkout customers choose **Pickup at store** or **Home delivery**. For delivery they must give their name, a 10-digit mobile number and their address (landmark and pincode are optional). The phone remembers these for next time. Settings → **Home delivery** lets you switch it on or off, set a delivery charge, make delivery free above an order value, and show a note (e.g. "We deliver within 5 km"). Delivery bills show a 🚚 tag in **Bills**, with the address, a call link and an *Open in Maps* link. The CSV export includes the address.
 
+## Payments: UPI or cash
+
+At checkout customers choose **UPI** or **Cash** (at the counter for pickup, on delivery for home delivery). Switch cash off in Settings → Payment.
+
+The bill shows the UPI QR (works with any UPI app) plus buttons for **Google Pay, PhonePe, Paytm** and *Other UPI app*, so payment opens the app the customer actually uses instead of the phone's default (often WhatsApp). Cash bills show the amount to pay in cash, with UPI as a fallback.
+
+In **Bills**, mark a bill paid with **UPI ✓** or **Cash ✓**; the bill view has *Paid by UPI* / *Paid in cash*. The dashboard splits today's takings into UPI and cash, and the CSV export has a *Paid by* column.
+
 ## How discounts work
 
 - An offer is **% off** or **₹ off**, on the **whole cart** or **one category**, with an optional **minimum order**, **maximum discount**, and **start/end time** (so festival offers switch themselves on and off).

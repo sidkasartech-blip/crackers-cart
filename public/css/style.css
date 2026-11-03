@@ -375,6 +375,11 @@ dialog.sheet[open] { display: flex; animation: sheet-up .28s cubic-bezier(.2,.9,
 .deliver-box { padding: 12px 18px; border-bottom: 1px dashed var(--line); font-size: .86rem; }
 .deliver-box b { display: block; margin-bottom: 2px; }
 @media (max-width: 380px) { .fulfil { grid-template-columns: 1fr; } }
+.upi-apps { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-width: 360px; margin: 8px auto 0; }
+.upi-app { min-height: 46px; font-size: .9rem; }
+.pay-cash { font-size: 2rem; }
+.pay-alt { margin-top: 14px; }
+.pay-alt summary { cursor: pointer; font-weight: 700; color: var(--brand); font-size: .9rem; }
 
 /* ============================================================
    Bill

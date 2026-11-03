@@ -102,7 +102,7 @@
     const d = await api('/api/admin/dashboard');
     const stat = (cls, icon, label, value, sub = '') => `<div class="card stat ${cls}"><div class="ic">${icon}</div><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
     $('#stats').innerHTML = [
-      stat('s1', '📈', "Today's sales", money(d.today.sales), `${d.today.orders} bills · ${money(d.today.paid)} paid`),
+      stat('s1', '📈', "Today's sales", money(d.today.sales), `${d.today.orders} bills · paid: 📱 ${money(d.today.paidUpi)} UPI · 💵 ${money(d.today.paidCash)} cash`),
       stat('s2', '⏳', 'Awaiting payment', money(d.pending.v), `${d.pending.n} bills`),
       stat('s3', '💰', 'Total collected', money(d.allTime.sales), `${d.allTime.orders} paid bills`),
       stat('s4', '📦', 'Total stock', `${d.stockValue.units}`, `${d.stockValue.online} online · ${d.stockValue.store} in store · worth ${money(d.stockValue.v)}`),
@@ -401,9 +401,9 @@
         <td class="small">${esc(fmtTime(o.createdAt))}</td>
         <td>${o.fulfilment === 'delivery' ? '<span class="badge brand">🚚 Delivery</span> ' : ''}${esc(o.customerName || '—')}<div class="small muted">${esc(o.customerPhone)}</div></td>
         <td class="r num"><b>${money(o.total)}</b></td>
-        <td>${statusBadge(o.status)}</td>
+        <td>${statusBadge(o.status)}<div class="small muted">${o.status === 'paid' ? (o.paidBy === 'cash' ? '💵 Cash' : '📱 UPI') : (o.payPref === 'cash' ? 'chose 💵 cash' : 'chose 📱 UPI')}</div></td>
         <td class="r" style="white-space:nowrap">
-          ${o.status === 'pending' ? `<button class="btn btn-sm btn-primary" data-status="paid">Mark paid</button>` : ''}
+          ${o.status === 'pending' ? `<button class="btn btn-sm btn-primary" data-status="paid" data-by="upi">UPI ✓</button> <button class="btn btn-sm" data-status="paid" data-by="cash">Cash ✓</button>` : ''}
           <button class="btn btn-sm" data-view="${o.id}">View</button>
         </td>
       </tr>`).join('') : '<tr><td colspan="6"><div class="empty">No bills here.</div></td></tr>';
@@ -413,22 +413,22 @@
   $('#orderStatus').addEventListener('change', loadOrders);
   $('#orderDate').addEventListener('change', loadOrders);
 
-  async function setOrderStatus(id, status) {
+  async function setOrderStatus(id, status, paidBy) {
     if (status === 'cancelled' && !confirm('Cancel this bill? Its items go back into stock.')) return false;
-    await api(`/api/admin/orders/${id}`, { method: 'PATCH', body: { status } });
-    toast(status === 'paid' ? 'Marked as paid' : status === 'cancelled' ? 'Bill cancelled, stock returned' : 'Marked as pending');
+    await api(`/api/admin/orders/${id}`, { method: 'PATCH', body: { status, paidBy } });
+    toast(status === 'paid' ? `Marked as paid by ${paidBy === 'cash' ? 'cash' : 'UPI'}` : status === 'cancelled' ? 'Bill cancelled, stock returned' : 'Marked as pending');
     return true;
   }
   $('#orderRows').addEventListener('click', async (e) => {
     const s = e.target.closest('[data-status]');
-    if (s) { if (await setOrderStatus(s.closest('tr').dataset.id, s.dataset.status)) loadOrders(); return; }
+    if (s) { if (await setOrderStatus(s.closest('tr').dataset.id, s.dataset.status, s.dataset.by)) loadOrders(); return; }
     const v = e.target.closest('[data-view]');
     if (v) openOrder(Number(v.dataset.view));
   });
 
   async function openOrder(id) {
     const o = await api(`/api/orders/${id}`);
-    $('#orderDlgTitle').innerHTML = `${esc(o.billNo)} ${statusBadge(o.status)}`;
+    $('#orderDlgTitle').innerHTML = `${esc(o.billNo)} ${statusBadge(o.status)} <span class="badge">${o.status === 'paid' ? (o.paidBy === 'cash' ? '💵 Paid in cash' : '📱 Paid by UPI') : (o.payPref === 'cash' ? '💵 Will pay cash' : '📱 Will pay by UPI')}</span>`;
     $('#orderDlgBody').innerHTML = `
       <div class="small muted" style="margin-bottom:8px">${esc(fmtTime(o.createdAt))}${o.customerName ? ' · ' + esc(o.customerName) : ''}${o.customerPhone ? ' · ' + esc(o.customerPhone) : ''}</div>
       ${o.fulfilment === 'delivery' ? `<div class="banner ok" style="margin:0 0 12px;font-weight:500"><b>🚚 Deliver to:</b> ${esc(o.customerName)}${o.customerPhone ? ` · <a href="tel:${esc(o.customerPhone)}">${esc(o.customerPhone)}</a>` : ''}<br>
@@ -447,7 +447,7 @@
         <tr class="grand"><td>Total</td><td>${money(o.total)}</td></tr>
       </table>`;
     const btns = [];
-    if (o.status !== 'paid') btns.push('<button type="button" class="btn btn-primary" data-s="paid">Mark paid</button>');
+    if (o.status !== 'paid') btns.push('<button type="button" class="btn btn-primary" data-s="paid" data-by="upi">Paid by UPI</button>', '<button type="button" class="btn btn-primary" data-s="paid" data-by="cash">Paid in cash</button>');
     if (o.status === 'paid') btns.push('<button type="button" class="btn" data-s="pending">Mark unpaid</button>');
     if (o.status !== 'cancelled') btns.push('<button type="button" class="btn btn-danger" data-s="cancelled">Cancel bill</button>');
     btns.push(`<a class="btn" href="/bill?id=${o.id}&t=${o.token}" target="_blank" rel="noopener">Open bill</a>`);
@@ -455,7 +455,7 @@
     $('#orderDlgFoot').onclick = async (e) => {
       const b = e.target.closest('[data-s]');
       if (!b) return;
-      if (await setOrderStatus(o.id, b.dataset.s)) { $('#orderDlg').close(); loadOrders(); }
+      if (await setOrderStatus(o.id, b.dataset.s, b.dataset.by)) { $('#orderDlg').close(); loadOrders(); }
     };
     $('#orderDlg').showModal();
   }

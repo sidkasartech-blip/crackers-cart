@@ -5,6 +5,7 @@
   let coupon = safeGet(COUPON_KEY, '') || '';
   const CUSTOMER_KEY = 'cc_customer_v1'; // remembers name/phone/address on this phone for next time
   let fulfilment = 'pickup';
+  let payment = 'upi';
   const deliveryOn = () => catalog && catalog.settings.delivery_enabled === '1';
 
   const COUPON_MSG = {
@@ -41,6 +42,11 @@
     $('#delAddress').value = saved.address || '';
     $('#delLandmark').value = saved.landmark || '';
     $('#delPincode').value = saved.pincode || '';
+    if (catalog.settings.cash_enabled === '1') {
+      $('#payWrap').classList.remove('hidden');
+      if (saved.payment === 'cash') { payment = 'cash'; $('input[name=pay][value=cash]').checked = true; }
+      applyPaymentUi();
+    }
     if (!deliveryOn()) return;
     const s = catalog.settings;
     const charge = Math.round((Number(s.delivery_charge) || 0) * 100);
@@ -56,7 +62,19 @@
     applyFulfilmentUi();
   }
 
+  function applyPaymentUi() {
+    $('#cashLabel').textContent = fulfilment === 'delivery' ? 'Cash on delivery' : 'Pay at the counter';
+    $('#payHint').textContent = payment === 'cash'
+      ? (fulfilment === 'delivery' ? 'Pay in cash when your order is delivered' : 'Pay in cash at the counter')
+      : 'Pay securely with any UPI app on the next screen';
+  }
+  $$('input[name=pay]').forEach((r) => r.addEventListener('change', () => {
+    payment = $('input[name=pay]:checked').value;
+    applyPaymentUi();
+  }));
+
   function applyFulfilmentUi() {
+    applyPaymentUi();
     const d = fulfilment === 'delivery';
     $('#addressFields').classList.toggle('hidden', !d);
     $$('#checkout .req').forEach((el) => el.classList.toggle('hidden', !d));
@@ -183,9 +201,9 @@
       deliveryAddress: $('#delAddress').value.trim(), deliveryLandmark: $('#delLandmark').value.trim(), deliveryPincode: $('#delPincode').value.trim(),
     };
     try {
-      const res = await api('/api/orders', { method: 'POST', body: { items: Cart.lines(), coupon, fulfilment, ...details } });
+      const res = await api('/api/orders', { method: 'POST', body: { items: Cart.lines(), coupon, fulfilment, payment, ...details } });
       safeSet(CUSTOMER_KEY, { name: details.customerName, phone: details.customerPhone, address: details.deliveryAddress,
-        landmark: details.deliveryLandmark, pincode: details.deliveryPincode, fulfilment });
+        landmark: details.deliveryLandmark, pincode: details.deliveryPincode, fulfilment, payment });
       Cart.clear();
       location.replace(`/bill?id=${res.id}&t=${res.token}`);
     } catch (e) {

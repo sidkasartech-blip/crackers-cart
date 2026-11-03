@@ -368,3 +368,38 @@ test('online orders use online stock first, then store stock; cancelling puts ea
   it = await get();
   assert.deepEqual([it.stock, it.storeStock], [0, 4]);
 });
+
+test('cash or UPI: customer choice, how it was paid, dashboard split', async (t) => {
+  const { call, close } = await setup();
+  t.after(close);
+  await call('POST', '/api/admin/login', { password: 'admin123' });
+  await call('PUT', '/api/admin/settings', { upi_id: 'shop@okaxis' });
+  const item = (await call('GET', '/api/catalog')).data.items.find((i) => i.stock >= 5);
+  const items = [{ itemId: item.id, qty: 1 }];
+
+  const cash = (await call('POST', '/api/orders', { items, payment: 'cash' })).data;
+  const upi = (await call('POST', '/api/orders', { items })).data;
+  const bill = async (o) => (await call('GET', `/api/orders/${o.id}?t=${o.token}`)).data;
+  assert.equal((await bill(cash)).payPref, 'cash');
+  assert.equal((await bill(upi)).payPref, 'upi');
+  assert.ok((await bill(cash)).upiQr); // UPI still offered as a fallback
+
+  await call('PATCH', `/api/admin/orders/${cash.id}`, { status: 'paid', paidBy: 'cash' });
+  await call('PATCH', `/api/admin/orders/${upi.id}`, { status: 'paid' }); // defaults to what the customer chose
+  assert.equal((await bill(cash)).paidBy, 'cash');
+  assert.equal((await bill(upi)).paidBy, 'upi');
+  // Correcting the method on an already-paid bill.
+  await call('PATCH', `/api/admin/orders/${upi.id}`, { status: 'paid', paidBy: 'cash' });
+  assert.equal((await bill(upi)).paidBy, 'cash');
+  await call('PATCH', `/api/admin/orders/${upi.id}`, { status: 'paid', paidBy: 'upi' });
+
+  const d = (await call('GET', '/api/admin/dashboard')).data.today;
+  assert.equal(d.paidCash, (await bill(cash)).total);
+  assert.equal(d.paidUpi, (await bill(upi)).total);
+  assert.match((await call('GET', '/api/admin/orders.csv')).data, /"paid","Cash"/);
+
+  // Cash switched off: the choice is ignored.
+  await call('PUT', '/api/admin/settings', { cash_enabled: false });
+  const o = (await call('POST', '/api/orders', { items, payment: 'cash' })).data;
+  assert.equal((await bill(o)).payPref, 'upi');
+});

@@ -61,6 +61,16 @@
           <div class="muted small" id="deliveryNote" style="margin:-4px 0 12px"></div>
         </div>
 
+        <div id="payWrap" class="hidden">
+          <div class="card-title">How will you pay?</div>
+          <div class="fulfil" role="radiogroup" aria-label="Payment method">
+            <label class="fulfil-opt"><input type="radio" name="pay" value="upi" checked>
+              <span class="fo-ic">📱</span><span><b>UPI</b><small>GPay, PhonePe, Paytm…</small></span></label>
+            <label class="fulfil-opt"><input type="radio" name="pay" value="cash">
+              <span class="fo-ic">💵</span><span><b>Cash</b><small id="cashLabel">Pay at the counter</small></span></label>
+          </div>
+        </div>
+
         <div class="card-title" id="detailsTitle">Your details <span class="opt">(optional)</span></div>
         <div class="row">
           <label class="field"><span>Name <i class="req hidden">*</i></span><input class="input" id="custName" autocomplete="name" maxlength="80"></label>
@@ -79,7 +89,7 @@
         <button class="btn btn-primary btn-lg btn-block" id="placeBtn" type="button">Generate bill</button>
         <p class="muted small secure-note">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-          Pay securely with any UPI app on the next screen
+          <span id="payHint">Pay securely with any UPI app on the next screen</span>
         </p>
       </aside>
     </div>

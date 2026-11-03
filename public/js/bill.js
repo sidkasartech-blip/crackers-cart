@@ -10,18 +10,57 @@
     return d.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
   }
 
-  function payBlock(o) {
-    if (o.status === 'paid') return '<div class="pay"><span class="paid-stamp"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>PAID</span><p class="muted small" style="margin-bottom:0">Thank you for your payment!</p></div>';
-    if (o.status === 'cancelled') return '<div class="pay"><span class="badge danger">This bill was cancelled</span></div>';
-    if (!o.upiQr) return `<div class="pay"><div class="muted small">Amount to pay</div><div class="amount num">${money(o.total)}</div><p class="muted small">Please pay at the counter.</p></div>`;
-    const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
-    return `<div class="pay">
-      <div class="muted small">Scan with any UPI app to pay</div>
-      <div class="amount num">${money(o.total)}</div>
+  /**
+   * One button per UPI app, so the payment doesn't open whichever app the phone uses by default (often WhatsApp).
+   * Android: an intent link names the exact app. iPhone: each app's own link scheme.
+   */
+  function upiAppButtons(uri) {
+    const qs = uri.split('?')[1] || '';
+    const android = /Android/i.test(navigator.userAgent);
+    const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (!android && !ios) return '';
+    const apps = [
+      { name: 'Google Pay', pkg: 'com.google.android.apps.nbu.paisa.user', ios: `gpay://upi/pay?${qs}` },
+      { name: 'PhonePe', pkg: 'com.phonepe.app', ios: `phonepe://pay?${qs}` },
+      { name: 'Paytm', pkg: 'net.one97.paytm', ios: `paytmmp://pay?${qs}` },
+    ];
+    const link = (a) => (android ? `intent://pay?${qs}#Intent;scheme=upi;package=${a.pkg};end` : a.ios);
+    return `<div class="upi-apps no-print">
+      ${apps.map((a) => `<a class="btn upi-app" href="${esc(link(a))}">${esc(a.name)}</a>`).join('')}
+      <a class="btn upi-app" href="${esc(uri)}">Other UPI app</a>
+    </div>`;
+  }
+
+  function upiBlock(o, { compact = false } = {}) {
+    const apps = upiAppButtons(o.upiUri);
+    return `${compact ? '' : `<div class="muted small">Scan this QR with any UPI app</div><div class="amount num">${money(o.total)}</div>`}
       <img class="qr" src="${o.upiQr}" alt="UPI payment QR code">
-      <div class="small muted">UPI ID: <b>${esc(o.shop.upi_id)}</b></div>
-      ${isMobile ? `<a class="btn btn-primary btn-lg no-print" style="margin-top:14px" href="${esc(o.upiUri)}">Pay ${money(o.total)} with UPI app</a>` : ''}
-      <p class="small muted no-print" style="margin-top:12px">After paying, show this screen at the counter. It turns to <b>PAID</b> once confirmed.</p>
+      <div class="small muted">UPI ID: <b>${esc(o.shop.upi_id)}</b>
+        <button type="button" class="btn btn-sm btn-ghost no-print" id="copyUpi" style="min-height:30px;padding:0 10px">Copy</button></div>
+      ${apps ? `<div class="small muted no-print" style="margin-top:14px">Or tap your app to pay ${money(o.total)}:</div>${apps}` : ''}`;
+  }
+
+  function payBlock(o) {
+    if (o.status === 'paid') {
+      const via = o.paidBy === 'cash' ? ' in cash' : o.paidBy === 'upi' ? ' by UPI' : '';
+      return `<div class="pay"><span class="paid-stamp"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>PAID</span><p class="muted small" style="margin-bottom:0">Thank you for your payment${via}!</p></div>`;
+    }
+    if (o.status === 'cancelled') return '<div class="pay"><span class="badge danger">This bill was cancelled</span></div>';
+    const where = o.fulfilment === 'delivery' ? 'when your order is delivered' : 'at the counter';
+    const after = '<p class="small muted no-print" style="margin-top:12px">This bill turns to <b>PAID</b> once the shop confirms your payment.</p>';
+    if (o.payPref === 'cash' || !o.upiQr) {
+      return `<div class="pay">
+        <div class="pay-cash">💵</div>
+        <div class="muted small">Pay in cash ${where}</div>
+        <div class="amount num">${money(o.total)}</div>
+        ${o.upiQr ? `<details class="pay-alt no-print"><summary>Prefer to pay by UPI?</summary>${upiBlock(o, { compact: true })}</details>` : ''}
+        ${after}
+      </div>`;
+    }
+    return `<div class="pay">
+      ${upiBlock(o)}
+      ${o.shop.cash_enabled === '1' ? `<p class="small muted" style="margin-top:12px">Prefer cash? Pay ${money(o.total)} ${where}.</p>` : ''}
+      ${after}
     </div>`;
   }
 
@@ -62,6 +101,8 @@
     actions.push('<a class="btn btn-ghost" href="/">Shop again</a>');
     $('#actions').innerHTML = actions.join('');
     $('#printBtn').onclick = () => window.print();
+    const cp = $('#copyUpi');
+    if (cp) cp.onclick = () => navigator.clipboard.writeText(o.shop.upi_id).then(() => toast('UPI ID copied'), () => toast(o.shop.upi_id));
     const sb = $('#shareBtn');
     if (sb) sb.onclick = () => navigator.share({ title: `${s.shop_name} bill ${o.billNo}`, text: `Bill ${o.billNo}: ${money(o.total)}`, url: location.href }).catch(() => {});
     document.title = `Bill ${o.billNo}`;
@@ -85,9 +126,9 @@
     pollTimer = setInterval(async () => {
       if (document.hidden) return;
       try {
-        const { status } = await api(`/api/orders/${encodeURIComponent(id)}/status?t=${encodeURIComponent(t)}`);
+        const { status, paidBy } = await api(`/api/orders/${encodeURIComponent(id)}/status?t=${encodeURIComponent(t)}`);
         if (status !== order.status) {
-          order.status = status;
+          order.status = status; order.paidBy = paidBy;
           render(order);
           if (status !== 'pending') clearInterval(pollTimer);
           if (status === 'paid' && navigator.vibrate) navigator.vibrate([30, 60, 30]);
