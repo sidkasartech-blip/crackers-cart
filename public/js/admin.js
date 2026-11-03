@@ -252,7 +252,7 @@
       f.price.value = rupees(item.price); f.mrp.value = rupees(item.mrp); f.stock.value = item.stock;
       f.lowStock.value = item.lowStock; f.sortOrder.value = item.sortOrder; f.active.checked = item.active;
     }
-    $('#imgUrl').value = item && item.image && !item.image.startsWith('/uploads/') ? item.image : '';
+    $('#imgUrl').value = item && item.image && !item.image.startsWith('/img/') ? item.image : '';
     setPreview(item ? item.image : '');
     $('#itemDelete').classList.toggle('hidden', !item);
     showErr($('#itemErr'), '');

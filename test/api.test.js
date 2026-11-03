@@ -10,9 +10,9 @@ const { seedDemo } = require('../src/seed');
 
 async function setup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-test-'));
-  const db = openDb(':memory:');
-  seedDemo(db);
-  const app = createApp(db, { uploadDir: path.join(dir, 'uploads') });
+  const db = await openDb(`file:${path.join(dir, 'shop.db')}`);
+  await seedDemo(db);
+  const app = createApp(db);
   const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;
   let cookie = '';
@@ -28,7 +28,7 @@ async function setup() {
     let data; try { data = JSON.parse(text); } catch { data = text; }
     return { status: res.status, data };
   };
-  return { call, close: () => server.close(), dir };
+  return { call, close: () => { server.close(); db.client.close(); }, dir, base };
 }
 
 test('customer flow: catalog → quote → order → bill → admin marks paid', async (t) => {
@@ -83,7 +83,7 @@ test('orders are rejected when stock is short and bills need the token', async (
 });
 
 test('admin can manage items, discounts, bulk rates and uploads', async (t) => {
-  const { call, close, dir } = await setup();
+  const { call, close, base } = await setup();
   t.after(close);
   await call('POST', '/api/admin/login', { password: 'admin123' });
 
@@ -111,9 +111,27 @@ test('admin can manage items, discounts, bulk rates and uploads', async (t) => {
   const png1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   const up = await call('POST', '/api/admin/upload', { dataUrl: png1x1 });
   assert.equal(up.status, 201);
-  assert.ok(fs.existsSync(path.join(dir, 'uploads', path.basename(up.data.url))));
+  const img = await fetch(base + up.data.url);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await img.arrayBuffer()), Buffer.from(png1x1.split(',')[1], 'base64'));
   assert.equal((await call('POST', '/api/admin/upload', { dataUrl: 'data:text/html;base64,PGgxPg==' })).status, 400);
 
   const qr = await call('GET', '/api/admin/store-qr');
   assert.match(qr.data.qr, /^data:image\/png/);
+});
+
+test('deleting a category keeps its items and removes its offers', async (t) => {
+  const { call, close } = await setup();
+  t.after(close);
+  await call('POST', '/api/admin/login', { password: 'admin123' });
+  const cats = (await call('GET', '/api/admin/categories')).data;
+  const c = cats[0];
+  await call('POST', '/api/admin/discounts', { name: 'Cat deal', type: 'percent', value: 10, categoryId: c.id });
+  await call('DELETE', `/api/admin/categories/${c.id}`);
+  const items = (await call('GET', '/api/admin/items')).data;
+  assert.equal(items.length, 11);
+  assert.ok(items.every((i) => i.categoryId !== c.id));
+  const discs = (await call('GET', '/api/admin/discounts')).data;
+  assert.ok(discs.every((d) => d.categoryId !== c.id));
 });

@@ -27,31 +27,31 @@ function readCookie(req, name) {
   return null;
 }
 
-function createSession(db, res, secure) {
+async function createSession(db, res, secure) {
   const token = crypto.randomBytes(32).toString('hex');
   const expires = Date.now() + SESSION_DAYS * 864e5;
-  db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
-  db.prepare('INSERT INTO sessions (token, expires_at) VALUES (?, ?)').run(token, expires);
+  await db.run('DELETE FROM sessions WHERE expires_at < ?', [Date.now()]);
+  await db.run('INSERT INTO sessions (token, expires_at) VALUES (?, ?)', [token, expires]);
   res.setHeader('Set-Cookie',
     `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_DAYS * 86400}${secure ? '; Secure' : ''}`);
 }
 
-function destroySession(db, req, res) {
+async function destroySession(db, req, res) {
   const token = readCookie(req, COOKIE);
-  if (token) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+  if (token) await db.run('DELETE FROM sessions WHERE token = ?', [token]);
   res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
 }
 
-function isAuthed(db, req) {
+async function isAuthed(db, req) {
   const token = readCookie(req, COOKIE);
   if (!token) return false;
-  const row = db.prepare('SELECT expires_at FROM sessions WHERE token = ?').get(token);
+  const row = await db.get('SELECT expires_at FROM sessions WHERE token = ?', [token]);
   return !!row && row.expires_at > Date.now();
 }
 
 function requireAdmin(db) {
-  return (req, res, next) => {
-    if (isAuthed(db, req)) return next();
+  return async (req, res, next) => {
+    if (await isAuthed(db, req)) return next();
     res.status(401).json({ error: 'Please log in' });
   };
 }

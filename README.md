@@ -8,7 +8,7 @@ A simple scan-and-shop web app for a crackers stall.
 
 ## Run it
 
-Requires **Node.js 22.13+** (uses the built-in SQLite, so nothing to install besides two small packages).
+Requires **Node.js 22**. Locally it stores everything in a SQLite file; on Vercel it uses a hosted [Turso](https://turso.tech) database (also SQLite).
 
 ```bash
 npm install
@@ -26,7 +26,9 @@ The first start loads a small sample catalog and offers so you can try it right 
 | Env var | Default | What it does |
 |---|---|---|
 | `PORT` | `3000` | HTTP port |
-| `DATA_DIR` | `./data` | Where the database (`shop.db`) and uploaded photos live. **Back this folder up.** |
+| `DATA_DIR` | `./data` | Local database folder (`shop.db`, photos included). **Back this folder up.** |
+| `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` | — | Use a hosted Turso database instead of the local file (required on Vercel) |
+| `SHOP_TZ_OFFSET_MINUTES` | `330` | Shop's timezone offset from UTC, used for "today" on the dashboard (330 = India) |
 | `ADMIN_PASSWORD` | `admin123` | Initial admin password (first run only) |
 | `SEED_DEMO` | on | `0` to skip the sample catalog |
 
@@ -61,17 +63,31 @@ The bill shows a standard `upi://pay` QR with the exact amount, which any UPI ap
 
 Stock is reserved as soon as a bill is generated. If a customer walks away without paying, cancel the bill to put the items back.
 
-## Hosting
+## Deploy to Vercel
 
-Any small server or VPS that runs Node works (Render, Railway, a ₹300/month VPS, or a laptop at the stall on the same Wi-Fi). Use HTTPS in production so the admin cookie is protected, and keep `DATA_DIR` on persistent storage.
+Vercel doesn't keep files between requests, so the app stores its data (including product photos) in a free hosted **Turso** database.
+
+1. Go to [vercel.com/new](https://vercel.com/new) → import the `crackers-cart` GitHub repo → **Deploy**. Leave every build setting at its default; `vercel.json` handles them. The first deploy will show a "No database configured" error. That's expected.
+2. In the Vercel project, open **Storage → Create Database → Turso** (from the Marketplace) and connect it to the project. This adds `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` automatically.
+   *Or* create a database at [turso.tech](https://turso.tech) yourself and add those two variables under **Settings → Environment Variables**.
+3. Optional but recommended: add `ADMIN_PASSWORD` under **Settings → Environment Variables** so the admin password isn't `admin123` from the start. To start with an empty catalog, also add `SEED_DEMO` = `0`.
+4. **Deployments → ⋯ → Redeploy**. Open `https://<your-app>.vercel.app/admin`, set your UPI ID, and print the **Store QR**.
+
+Tables are created on the first request. To move from a local install to Turso, you can upload your local file with `turso db create shop --from-file data/shop.db`.
+
+### Other hosts
+
+Any server that runs Node works with no database setup (Render, Railway, a small VPS, or a laptop at the stall on the same Wi-Fi). Keep `DATA_DIR` on persistent storage and use HTTPS so the admin login is protected.
 
 ## Project layout
 
 ```
-server.js           start-up
+server.js           start-up for local/VPS
+api/index.js        Vercel entry point (vercel.json routes /api and /img here)
+src/boot.js         picks the database (local file or Turso) and builds the app
 src/app.js          all HTTP routes (public + admin)
 src/pricing.js      bill / discount calculation (pure, unit-tested)
-src/db.js           SQLite schema and settings
+src/db.js           schema, settings, and a small async DB wrapper
 src/auth.js         admin password + sessions
 src/seed.js         sample catalog
 public/             shop, checkout, bill and admin pages (plain HTML/CSS/JS, no build step)

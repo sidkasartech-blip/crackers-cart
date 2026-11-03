@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "outputDirectory": "public",
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/img/(.*)", "destination": "/api" }
+  ],
+  "functions": {
+    "api/index.js": { "maxDuration": 15 }
+  }
+}
