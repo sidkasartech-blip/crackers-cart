@@ -27,7 +27,7 @@ The first start loads a small sample catalog and offers so you can try it right 
 |---|---|---|
 | `PORT` | `3000` | HTTP port |
 | `DATA_DIR` | `./data` | Local database folder (`shop.db`, photos included). **Back this folder up.** |
-| `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` | — | Use a hosted Turso database instead of the local file (required on Vercel) |
+| `cc_TURSO_DATABASE_URL` / `cc_TURSO_AUTH_TOKEN` | — | Hosted Turso database instead of the local file (required on Vercel). Unprefixed `TURSO_*` names also work. |
 | `SHOP_TZ_OFFSET_MINUTES` | `330` | Shop's timezone offset from UTC, used for "today" on the dashboard (330 = India) |
 | `ADMIN_PASSWORD` | `admin123` | Initial admin password (first run only) |
 | `SEED_DEMO` | on | `0` to skip the sample catalog |
@@ -68,7 +68,7 @@ Stock is reserved as soon as a bill is generated. If a customer walks away witho
 Vercel doesn't keep files between requests, so the app stores its data (including product photos) in a free hosted **Turso** database.
 
 1. Go to [vercel.com/new](https://vercel.com/new) → import the `crackers-cart` GitHub repo → **Deploy**. Leave every build setting at its default; `vercel.json` handles them. The first deploy will show a "No database configured" error. That's expected.
-2. In the Vercel project, open **Storage → Create Database → Turso** (from the Marketplace) and connect it to the project. This adds `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` automatically.
+2. In the Vercel project, open **Storage → Create Database → Turso** (from the Marketplace) and connect it to the project. This adds `cc_TURSO_DATABASE_URL` and `cc_TURSO_AUTH_TOKEN` (or the same names without the `cc_` prefix — both work).
    *Or* create a database at [turso.tech](https://turso.tech) yourself and add those two variables under **Settings → Environment Variables**.
 3. Optional but recommended: add `ADMIN_PASSWORD` under **Settings → Environment Variables** so the admin password isn't `admin123` from the start. To start with an empty catalog, also add `SEED_DEMO` = `0`.
 4. **Deployments → ⋯ → Redeploy**. Open `https://<your-app>.vercel.app/admin`, set your UPI ID, and print the **Store QR**.

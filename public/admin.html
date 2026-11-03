@@ -3,25 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#7c2d12">
+  <meta name="theme-color" content="#f5f5f8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b0c11" media="(prefers-color-scheme: dark)">
   <meta name="robots" content="noindex">
   <title>Shop Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
   <header class="topbar">
     <div class="wrap">
-      <h1>Shop Admin</h1>
+      <div class="brand">
+        <span class="logo" aria-hidden="true">✨</span>
+        <span class="brand-text"><h1>Shop Admin</h1><span class="tagline hide-sm">Inventory, rates &amp; bills</span></span>
+      </div>
       <span class="spacer"></span>
-      <a class="btn btn-sm" href="/" target="_blank" rel="noopener">View shop</a>
-      <button class="btn btn-sm hidden" id="logoutBtn">Log out</button>
+      <a class="btn btn-sm" href="/" target="_blank" rel="noopener"><span class="hide-sm">View&nbsp;</span>Shop ↗</a>
+      <button class="btn btn-sm btn-ghost hidden" id="logoutBtn">Log out</button>
     </div>
   </header>
 
   <!-- Login -->
   <main class="wrap hidden" id="loginView">
-    <form class="card pad login" id="loginForm">
-      <h2 style="margin-bottom:12px">Admin login</h2>
+    <form class="card login" id="loginForm">
+      <span class="logo" aria-hidden="true">✨</span>
+      <h2>Welcome back</h2>
+      <p class="muted">Log in to manage your shop.</p>
       <label class="field"><span>Password</span><input class="input" type="password" id="loginPw" autocomplete="current-password" required autofocus></label>
       <div class="banner danger hidden" id="loginErr"></div>
       <button class="btn btn-primary btn-block">Log in</button>
@@ -46,13 +55,13 @@
       <!-- Dashboard -->
       <section class="section" data-panel="dashboard">
         <div class="stats" id="stats"></div>
-        <div class="row" style="align-items:start">
+        <div class="dash-grid">
           <div class="card">
-            <div class="pad"><h3>Low stock</h3></div>
+            <div class="card-head"><h3>⚠️ Low stock</h3><button class="btn btn-sm btn-ghost" data-goto="items">Inventory →</button></div>
             <div class="table-wrap"><table class="data" id="lowStock"></table></div>
           </div>
           <div class="card">
-            <div class="pad"><h3>Best sellers</h3></div>
+            <div class="card-head"><h3>🔥 Best sellers</h3></div>
             <div class="table-wrap"><table class="data" id="topItems"></table></div>
           </div>
         </div>
@@ -108,7 +117,7 @@
           <h2>Offers &amp; coupons</h2>
           <button class="btn btn-primary" id="addDiscBtn">+ Add offer</button>
         </div>
-        <p class="muted small">Offers without a code apply automatically. Only the single best offer is applied to a bill.</p>
+        <p class="muted small" style="margin:-6px 0 14px">Offers without a code apply automatically. Only the single best offer is applied to a bill.</p>
         <div class="card table-wrap">
           <table class="data">
             <thead><tr><th>Offer</th><th>Discount</th><th>Applies to</th><th>Min order</th><th>When</th><th>On</th><th></th></tr></thead>
@@ -180,10 +189,13 @@
       <!-- Store QR -->
       <section class="section hidden" data-panel="qr">
         <div class="card qr-poster" id="qrPoster">
-          <h2 id="qrShop"></h2>
-          <p class="muted">Scan to browse &amp; order crackers</p>
+          <div class="poster-head">
+            <h2 id="qrShop"></h2>
+            <p>Scan to browse &amp; order crackers</p>
+          </div>
           <img id="qrImg" alt="Shop QR code">
           <div class="small muted" id="qrUrl"></div>
+          <div class="steps"><span>① Scan</span><span>② Pick crackers</span><span>③ Pay by UPI</span></div>
         </div>
         <div class="bill-actions no-print">
           <button class="btn btn-primary" onclick="window.print()">Print poster</button>

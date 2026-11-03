@@ -4,11 +4,15 @@
   let query = '';
   let byId = new Map();
 
+  const skeleton = () => Array.from({ length: 6 }, () =>
+    '<div class="product skeleton" aria-hidden="true"><div class="thumb"></div><div class="info"><div class="sk" style="width:80%"></div><div class="sk" style="width:45%"></div></div></div>').join('');
+
   async function load() {
+    if (!data.items.length) $('#grid').innerHTML = skeleton();
     try {
       data = await api('/api/catalog');
     } catch (e) {
-      $('#grid').innerHTML = '<div class="empty">Could not load the catalog. <button class="btn btn-sm" onclick="location.reload()">Retry</button></div>';
+      $('#grid').innerHTML = '<div class="empty"><div class="big">📡</div><p>Could not load the catalog. Check your connection.</p><button class="btn" onclick="location.reload()">Try again</button></div>';
       return;
     }
     byId = new Map(data.items.map((i) => [i.id, i]));
@@ -42,15 +46,13 @@
     if (changed) Cart.set(c);
   }
 
-  function offerText(o) {
-    const what = o.type === 'percent' ? `${o.value}% OFF` : `${money(o.value)} OFF`;
-    const cat = o.categoryId ? data.categories.find((c) => c.id === o.categoryId) : null;
-    const on = cat ? ` on ${cat.name}` : '';
-    const min = o.minOrder > 0 ? ` above ${money(o.minOrder)}` : '';
-    return `🎉 ${what}${on}${min}`;
-  }
   function renderOffers() {
-    $('#offers').innerHTML = data.offers.map((o) => `<div class="offer">${esc(offerText(o))}</div>`).join('');
+    $('#offers').innerHTML = data.offers.map((o) => {
+      const what = o.type === 'percent' ? `${o.value}% OFF` : `${money(o.value)} OFF`;
+      const cat = o.categoryId ? data.categories.find((c) => c.id === o.categoryId) : null;
+      const sub = [cat ? `on ${cat.name}` : 'on your order', o.minOrder > 0 ? `above ${money(o.minOrder)}` : ''].filter(Boolean).join(' ');
+      return `<div class="offer"><span class="ic">🎁</span><span>${esc(what)}<small>${esc(sub)}</small></span></div>`;
+    }).join('');
   }
 
   function renderChips() {
@@ -67,14 +69,14 @@
     else if (it.stock <= 5) tag = `<span class="badge warn stock-tag">Only ${it.stock} left</span>`;
     const action = sold
       ? '<button class="add-btn" disabled>Sold out</button>'
-      : q > 0 ? stepperHtml(it.id, q, it.stock) : `<button class="add-btn" data-add="${it.id}">Add</button>`;
-    return `<article class="card product ${sold ? 'soldout' : ''}" data-id="${it.id}">
-      <div class="thumb">${thumbHtml(it)}${tag}</div>
+      : q > 0 ? stepperHtml(it.id, q, it.stock)
+        : `<button class="add-btn" data-add="${it.id}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add</button>`;
+    return `<article class="product ${sold ? 'soldout' : ''}" data-id="${it.id}">
+      <div class="thumb">${thumbHtml(it)}${off && !sold ? `<span class="off-tag">${off}% OFF</span>` : ''}${tag}</div>
       <div class="info">
         <div class="name">${esc(it.name)}</div>
         ${it.description ? `<div class="desc">${esc(it.description)}</div>` : ''}
-        <div class="price"><b class="num">${money(it.price)}</b><span class="muted small">/ ${esc(it.unit)}</span>
-          ${off ? `<s class="num">${money(it.mrp)}</s><span class="off">${off}% off</span>` : ''}</div>
+        <div class="price"><b class="num">${money(it.price)}</b>${off ? `<s class="num">${money(it.mrp)}</s>` : ''}<span class="unit">/ ${esc(it.unit)}</span></div>
         <div class="actions">${action}</div>
       </div>
     </article>`;
@@ -90,7 +92,9 @@
   function render() {
     const items = visibleItems();
     if (!items.length) {
-      $('#grid').innerHTML = `<div class="empty">${data.items.length ? 'Nothing matches your search.' : 'No items yet. Please check back soon.'}</div>`;
+      $('#grid').innerHTML = data.items.length
+        ? '<div class="empty"><div class="big">🔍</div><p>Nothing matches your search.</p></div>'
+        : '<div class="empty"><div class="big">🎇</div><p>No items yet. Please check back soon.</p></div>';
       return;
     }
     // In-stock first; otherwise keep the admin's order.
@@ -108,20 +112,25 @@
     const lines = Cart.lines().filter((l) => byId.has(l.itemId));
     const count = lines.reduce((s, l) => s + l.qty, 0);
     const subtotal = lines.reduce((s, l) => s + byId.get(l.itemId).price * l.qty, 0);
-    $('#cartCount').textContent = count;
-    $('#barCount').textContent = count;
+    const badge = $('#cartCount');
+    if (String(count) !== badge.textContent) {
+      badge.textContent = count;
+      badge.toggleAttribute('data-zero', count === 0);
+      badge.classList.remove('bump'); void badge.offsetWidth; badge.classList.add('bump');
+    }
+    $('#barCount').textContent = `${count} ${count === 1 ? 'item' : 'items'}`;
     $('#barTotal').textContent = money(subtotal);
     $('#cartbar').classList.toggle('show', count > 0);
     // Ask the server for the offer nudge ("add ₹X more to get 10% off").
     clearTimeout(quoteTimer);
-    if (!count) { $('#barNudge').textContent = ''; return; }
+    if (!count) { $('#barNudge').textContent = ''; $('#barSave').textContent = ''; return; }
     quoteTimer = setTimeout(async () => {
       try {
         const qd = await api('/api/quote', { method: 'POST', body: { items: lines } });
-        const parts = [];
-        if (qd.discount > 0) parts.push(`You save ${money(qd.discount)}!`);
-        if (qd.nextOffer) parts.push(`Add ${money(qd.nextOffer.addMore)} more for ${qd.nextOffer.label}`);
-        $('#barNudge').textContent = parts.join(' · ');
+        $('#barSave').textContent = qd.discount > 0 ? ` · You save ${money(qd.discount)}` : '';
+        // "Festival offer (10% off)" -> "10% off" to fit the bar.
+        const short = qd.nextOffer ? (/\(([^)]+)\)\s*$/.exec(qd.nextOffer.label) || [, qd.nextOffer.label])[1] : '';
+        $('#barNudge').textContent = qd.nextOffer ? `Add ${money(qd.nextOffer.addMore)} more for ${short}` : '';
       } catch { /* offline: ignore */ }
     }, 250);
   }

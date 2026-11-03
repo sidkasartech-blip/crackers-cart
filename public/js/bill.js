@@ -11,7 +11,7 @@
   }
 
   function payBlock(o) {
-    if (o.status === 'paid') return '<div class="pay"><span class="paid-stamp">PAID</span><p class="muted small">Thank you for your payment!</p></div>';
+    if (o.status === 'paid') return '<div class="pay"><span class="paid-stamp"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>PAID</span><p class="muted small" style="margin-bottom:0">Thank you for your payment!</p></div>';
     if (o.status === 'cancelled') return '<div class="pay"><span class="badge danger">This bill was cancelled</span></div>';
     if (!o.upiQr) return `<div class="pay"><div class="muted small">Amount to pay</div><div class="amount num">${money(o.total)}</div><p class="muted small">Please pay at the counter.</p></div>`;
     const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
@@ -53,7 +53,7 @@
       ${payBlock(o)}
       ${s.bill_footer ? `<div class="bill-foot">${esc(s.bill_footer)}</div>` : ''}`;
 
-    const actions = [`<button class="btn" id="printBtn">Print / Save PDF</button>`];
+    const actions = ['<button class="btn" id="printBtn">Print / Save PDF</button>'];
     if (navigator.share) actions.unshift('<button class="btn" id="shareBtn">Share bill</button>');
     actions.push('<a class="btn btn-ghost" href="/">Shop again</a>');
     $('#actions').innerHTML = actions.join('');

@@ -99,12 +99,12 @@
   /* ---------- dashboard ---------- */
   async function loadDashboard() {
     const d = await api('/api/admin/dashboard');
-    const stat = (label, value, sub = '') => `<div class="card stat"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="small muted">${sub}</div>` : ''}</div>`;
+    const stat = (cls, icon, label, value, sub = '') => `<div class="card stat ${cls}"><div class="ic">${icon}</div><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
     $('#stats').innerHTML = [
-      stat("Today's sales", money(d.today.sales), `${d.today.orders} bills · ${money(d.today.paid)} paid`),
-      stat('Awaiting payment', money(d.pending.v), `${d.pending.n} bills`),
-      stat('Total collected', money(d.allTime.sales), `${d.allTime.orders} paid bills`),
-      stat('Stock on hand', `${d.stockValue.units}`, `worth ${money(d.stockValue.v)}`),
+      stat('s1', '📈', "Today's sales", money(d.today.sales), `${d.today.orders} bills · ${money(d.today.paid)} paid`),
+      stat('s2', '⏳', 'Awaiting payment', money(d.pending.v), `${d.pending.n} bills`),
+      stat('s3', '💰', 'Total collected', money(d.allTime.sales), `${d.allTime.orders} paid bills`),
+      stat('s4', '📦', 'Stock on hand', `${d.stockValue.units}`, `worth ${money(d.stockValue.v)}`),
     ].join('');
     $('#lowStock').innerHTML = d.lowStock.length
       ? '<thead><tr><th>Item</th><th class="r">Left</th><th></th></tr></thead><tbody>' + d.lowStock.map((i) => `<tr>
@@ -193,7 +193,7 @@
         <td class="r"><input class="input inline num" type="number" min="0" step="0.01" value="${rupees(i.price)}" data-quick="price" aria-label="Rate"></td>
         <td class="r">${stockBadge(i)}</td>
         <td><input class="input inline num" type="number" step="1" placeholder="+0" data-quick="addStock" aria-label="Add stock"></td>
-        <td><input type="checkbox" ${i.active ? 'checked' : ''} data-quick="active" aria-label="Visible in shop" style="width:20px;height:20px;accent-color:var(--brand)"></td>
+        <td><input type="checkbox" ${i.active ? 'checked' : ''} data-quick="active" aria-label="Visible in shop" class="toggle"></td>
         <td class="r"><button class="btn btn-sm" data-edit="${i.id}">Edit</button></td>
       </tr>`).join('');
     $('#itemCards').innerHTML = items.map((i) => `<div class="card inv-card" data-id="${i.id}">
@@ -413,7 +413,7 @@
         <td>${d.categoryId ? esc(catName(d.categoryId)) : 'Whole cart'}</td>
         <td>${d.minOrder ? money(d.minOrder) : '—'}</td>
         <td>${when(d)}</td>
-        <td><input type="checkbox" ${d.active ? 'checked' : ''} data-toggle style="width:20px;height:20px;accent-color:var(--brand)" aria-label="Active"></td>
+        <td><input type="checkbox" ${d.active ? 'checked' : ''} data-toggle class="toggle" aria-label="Active"></td>
         <td class="r" style="white-space:nowrap"><button class="btn btn-sm" data-edit-disc>Edit</button> <button class="btn btn-sm btn-ghost btn-danger" data-del-disc>Delete</button></td>
       </tr>`).join('') : '<tr><td colspan="7"><div class="empty">No offers yet.</div></td></tr>';
   }
