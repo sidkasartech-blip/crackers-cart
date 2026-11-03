@@ -64,7 +64,8 @@ The Inventory tab shows Online, Store and **Total** for every item, plus overall
 - Updates never delete or rewrite your data. Database changes only ever *add* new tables or columns.
 - On a hosted database, sample items are **never** added unless you set `SEED_DEMO=1`. If you ever see the sample items (Baby Rocket, Pencil Crackers…) on your live site, the app is connected to a different, empty database. Your data has not been changed. Check the database settings in Vercel.
 - **Settings → Your data & backups** shows which database the app is connected to and how many items, bills and photos it holds. Check it after every deployment.
-- **Download full backup** saves everything (items, stock, photos, offers, bills, settings) as one file. Take one before big changes.
+- **Automatic snapshots** of all your data are saved in the database: before every app upgrade (kept forever), before any delete or bulk rate change, and once a day when the admin panel is opened (the last 60 are kept). Download any of them from Settings.
+- **Download full backup** saves everything (items, stock, photos, offers, bills, settings) as one file on your device. Take one before big changes, and keep a copy outside the app now and then.
 
 ## How discounts work
 

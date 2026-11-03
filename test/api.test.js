@@ -223,3 +223,42 @@ test('sample items are never added to a hosted database unless asked', async () 
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'boot.js'), 'utf8');
   assert.match(src, /SEED_DEMO === '1' \|\| \(local && process\.env\.SEED_DEMO !== '0'\)/);
 });
+
+test('automatic snapshots: before upgrade, before deletes, daily, and downloadable', async (t) => {
+  // Upgrade snapshot: start from an old database with real rows.
+  const { createClient } = require('@libsql/client');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-snap-'));
+  const url = `file:${path.join(dir, 'old.db')}`;
+  const old = createClient({ url });
+  await old.batch([
+    `CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+      category_id INTEGER, unit TEXT NOT NULL DEFAULT 'box', price INTEGER NOT NULL, mrp INTEGER, stock INTEGER NOT NULL DEFAULT 0,
+      low_stock INTEGER NOT NULL DEFAULT 5, image TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+    "INSERT INTO items (name, price, stock) VALUES ('Precious', 1000, 9)",
+  ], 'write');
+  old.close();
+  const db = await openDb(url);
+  const snaps = await db.all('SELECT reason, data FROM backups');
+  assert.equal(snaps.length, 1);
+  assert.match(snaps[0].reason, /^Before upgrade/);
+  assert.equal(JSON.parse(snaps[0].data).items[0].name, 'Precious');
+  db.client.close();
+
+  // Via the API: delete makes a snapshot first, daily is taken on dashboard, download works.
+  const { call, close } = await setup();
+  t.after(close);
+  await call('POST', '/api/admin/login', { password: 'admin123' });
+  await call('GET', '/api/admin/dashboard');
+  let list = (await call('GET', '/api/admin/backups')).data;
+  assert.equal(list.length, 1);
+  assert.equal(list[0].reason, 'Daily');
+  await call('GET', '/api/admin/dashboard'); // not twice in one day
+  const items = (await call('GET', '/api/admin/items')).data;
+  await call('DELETE', `/api/admin/items/${items[0].id}`);
+  list = (await call('GET', '/api/admin/backups')).data;
+  assert.equal(list.length, 2);
+  assert.match(list[0].reason, /^Before deleting item/);
+  const snap = (await call('GET', `/api/admin/backups/${list[0].id}.json`)).data;
+  assert.ok(snap.items.some((i) => i.id === items[0].id)); // the deleted item is in the snapshot
+});

@@ -188,6 +188,12 @@
             <a class="btn" href="/api/admin/inventory.csv" style="flex:0 0 auto">Inventory (CSV)</a>
             <a class="btn" href="/api/admin/orders.csv" style="flex:0 0 auto">Bills (CSV)</a>
           </div>
+          <div style="display:flex;align-items:center;gap:8px;margin:20px 0 8px">
+            <h3 style="flex:1;font-size:1rem">Automatic snapshots</h3>
+            <button class="btn btn-sm" id="snapNow" type="button">Take snapshot now</button>
+          </div>
+          <p class="muted small" style="margin:0 0 8px">Saved automatically every day, before every app upgrade, and before deletes or bulk rate changes.</p>
+          <div class="table-wrap"><table class="data" id="snapRows"></table></div>
         </div>
 
         <form class="card pad" id="pwForm" style="margin-top:16px">

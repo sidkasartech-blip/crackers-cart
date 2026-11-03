@@ -80,6 +80,14 @@ const SCHEMA = [
     token      TEXT PRIMARY KEY,
     expires_at INTEGER NOT NULL
   )`,
+  // Automatic snapshots of the shop's data (see backup.js).
+  `CREATE TABLE IF NOT EXISTS backups (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    reason     TEXT NOT NULL,
+    summary    TEXT NOT NULL DEFAULT '',
+    data       TEXT NOT NULL
+  )`,
   'CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at)',
   'CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)',
 ];
@@ -154,7 +162,7 @@ async function openDb(url, authToken) {
   seedSettings.push({ sql: 'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', args: ['password_is_default', process.env.ADMIN_PASSWORD ? '0' : '1'] });
   // One round trip for the whole schema + defaults (matters on serverless cold starts).
   await client.batch([...SCHEMA, ...seedSettings], 'write');
-  await migrate(client);
+  await migrate(db);
   return db;
 }
 
@@ -165,11 +173,19 @@ async function openDb(url, authToken) {
 const MIGRATIONS = [
   { table: 'items', column: 'store_stock', sql: 'ALTER TABLE items ADD COLUMN store_stock INTEGER NOT NULL DEFAULT 0' },
 ];
-async function migrate(client) {
+async function migrate(db) {
+  const client = db.client;
+  const pending = [];
   for (const m of MIGRATIONS) {
     const info = await client.execute(`PRAGMA table_info(${m.table})`);
     const nameIdx = info.columns.indexOf('name');
-    if (info.rows.some((r) => r[nameIdx] === m.column)) continue;
+    if (!info.rows.some((r) => r[nameIdx] === m.column)) pending.push(m);
+  }
+  if (!pending.length) return;
+  // Save a copy of everything before changing the database structure.
+  const { snapshot } = require('./backup');
+  await snapshot(db, `Before upgrade (${pending.map((m) => m.column).join(', ')})`);
+  for (const m of pending) {
     try {
       await client.execute(m.sql);
     } catch (err) {

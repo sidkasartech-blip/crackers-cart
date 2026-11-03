@@ -6,6 +6,7 @@ const QRCode = require('qrcode');
 const { getSettings } = require('./db');
 const { computeBill } = require('./pricing');
 const auth = require('./auth');
+const backups = require('./backup');
 
 const PUBLIC_SETTING_KEYS = [
   'shop_name', 'tagline', 'phone', 'address', 'gstin', 'tax_percent', 'bill_footer',
@@ -240,6 +241,9 @@ function createApp(db, { dbUrl = '' } = {}) {
   const admin = express.Router();
   admin.use(auth.requireAdmin(db));
   admin.use((req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+  // A daily snapshot is taken the first time the admin panel is used each day.
+  admin.get('/dashboard', async (req, res, next) => { await backups.ensureDaily(db).catch((e) => console.error('daily backup failed', e)); next(); });
+  const snapshotBefore = (label) => async (req, res, next) => { await backups.snapshot(db, label(req)); next(); };
   app.use('/api/admin', admin);
 
   /* ----- dashboard ----- */
@@ -278,7 +282,7 @@ function createApp(db, { dbUrl = '' } = {}) {
     await db.run('UPDATE categories SET name = ?, sort_order = ? WHERE id = ?', [name, toInt(req.body.sortOrder ?? 0, { field: 'Order', min: -1e9 }), Number(req.params.id)]);
     res.json({ ok: true });
   });
-  admin.delete('/categories/:id', async (req, res) => {
+  admin.delete('/categories/:id', snapshotBefore((r) => `Before deleting category #${r.params.id}`), async (req, res) => {
     const id = Number(req.params.id);
     // Done explicitly rather than via foreign keys, which hosted SQLite may not enforce per connection.
     await db.client.batch([
@@ -371,13 +375,13 @@ function createApp(db, { dbUrl = '' } = {}) {
     res.json(await getItem(id));
   });
 
-  admin.delete('/items/:id', async (req, res) => {
+  admin.delete('/items/:id', snapshotBefore((r) => `Before deleting item #${r.params.id}`), async (req, res) => {
     await db.run('DELETE FROM items WHERE id = ?', [Number(req.params.id)]);
     res.json({ ok: true });
   });
 
   // Change every rate (optionally in one category) by a percentage, e.g. +10 or -5.
-  admin.post('/items/bulk-price', async (req, res) => {
+  admin.post('/items/bulk-price', snapshotBefore(() => 'Before bulk rate change'), async (req, res) => {
     const pct = Number(req.body.percent);
     if (!Number.isFinite(pct) || pct <= -100 || pct > 1000) throw bad('Percent must be between -99 and 1000');
     const cat = req.body.categoryId ? Number(req.body.categoryId) : null;
@@ -441,7 +445,7 @@ function createApp(db, { dbUrl = '' } = {}) {
     await db.run('UPDATE discounts SET active = ? WHERE id = ?', [bool(req.body.active), Number(req.params.id)]);
     res.json({ ok: true });
   });
-  admin.delete('/discounts/:id', async (req, res) => {
+  admin.delete('/discounts/:id', snapshotBefore((r) => `Before deleting offer #${r.params.id}`), async (req, res) => {
     await db.run('DELETE FROM discounts WHERE id = ?', [Number(req.params.id)]);
     res.json({ ok: true });
   });
@@ -502,27 +506,34 @@ function createApp(db, { dbUrl = '' } = {}) {
       try { where = new URL(dbUrl.replace(/^libsql:/, 'https:')).host; } catch { where = 'Hosted database'; }
     }
     const c = await db.get(`SELECT (SELECT COUNT(*) FROM items) AS items, (SELECT COUNT(*) FROM categories) AS categories,
-      (SELECT COUNT(*) FROM discounts) AS offers, (SELECT COUNT(*) FROM orders) AS bills, (SELECT COUNT(*) FROM images) AS photos`);
+      (SELECT COUNT(*) FROM discounts) AS offers, (SELECT COUNT(*) FROM orders) AS bills, (SELECT COUNT(*) FROM images) AS photos,
+      (SELECT COUNT(*) FROM backups) AS snapshots, (SELECT MAX(created_at) FROM backups) AS lastSnapshot`);
     res.json({ where, counts: c });
   });
 
   // Full download of the shop's data (everything except login secrets).
   admin.get('/backup.json', async (req, res) => {
-    const [settings, categories, items, discounts, orders, orderItems, images] = await Promise.all([
-      db.all("SELECT key, value FROM settings WHERE key NOT IN ('admin_password')"),
-      db.all('SELECT * FROM categories'), db.all('SELECT * FROM items'), db.all('SELECT * FROM discounts'),
-      db.all('SELECT * FROM orders'), db.all('SELECT * FROM order_items'),
-      db.all('SELECT id, mime, data, created_at FROM images'),
-    ]);
-    const backup = {
-      app: 'crackers-cart', version: 1, createdAt: new Date().toISOString(),
-      settings, categories, items, discounts, orders, orderItems,
-      images: images.map((i) => ({ ...i, data: Buffer.from(i.data).toString('base64') })),
-    };
+    const backup = await backups.collect(db, { images: true });
     const stamp = new Date(Date.now() + TZ_OFFSET_MIN * 60000).toISOString().slice(0, 16).replace(/[:T]/g, '-');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="shop-backup-${stamp}.json"`);
     res.send(JSON.stringify(backup));
+  });
+
+  // Automatic snapshots: list, take one now, download one.
+  admin.get('/backups', async (req, res) => {
+    res.json(await db.all('SELECT id, created_at AS createdAt, reason, summary, LENGTH(data) AS size FROM backups ORDER BY id DESC'));
+  });
+  admin.post('/backups', async (req, res) => {
+    const id = await backups.snapshot(db, 'Manual');
+    res.status(201).json({ id });
+  });
+  admin.get('/backups/:id.json', async (req, res) => {
+    const row = await db.get('SELECT created_at, data FROM backups WHERE id = ?', [Number(req.params.id)]);
+    if (!row) throw new HttpError(404, 'Backup not found');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="shop-snapshot-${req.params.id}.json"`);
+    res.send(row.data);
   });
 
   admin.get('/inventory.csv', async (req, res) => {

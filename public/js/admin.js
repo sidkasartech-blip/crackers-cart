@@ -529,7 +529,22 @@
       $('#dbInfo').innerHTML = `<div>Database: <b>${esc(d.where)}</b></div>
         <div class="muted">${c.items} items · ${c.categories} categories · ${c.offers} offers · ${c.bills} bills · ${c.photos} photos</div>`;
     } catch (e) { $('#dbInfo').textContent = e.message; }
+    loadSnapshots();
   }
+  async function loadSnapshots() {
+    const list = await api('/api/admin/backups');
+    $('#snapRows').innerHTML = list.length
+      ? '<thead><tr><th>When</th><th>Why</th><th>Contents</th><th></th></tr></thead><tbody>' + list.map((b) => `<tr>
+          <td class="small" style="white-space:nowrap">${esc(fmtTime(b.createdAt))}</td>
+          <td>${esc(b.reason)}</td><td class="small muted">${esc(b.summary)}</td>
+          <td class="r"><a class="btn btn-sm" href="/api/admin/backups/${b.id}.json">Download</a></td></tr>`).join('') + '</tbody>'
+      : '<tbody><tr><td class="muted">No snapshots yet. One is taken automatically once you have items.</td></tr></tbody>';
+  }
+  $('#snapNow').addEventListener('click', async () => {
+    const r = await api('/api/admin/backups', { method: 'POST' });
+    toast(r.id ? 'Snapshot saved' : 'Nothing to save yet');
+    loadSnapshots();
+  });
   async function loadSettings() {
     loadDbInfo();
     const s = await api('/api/admin/settings');
