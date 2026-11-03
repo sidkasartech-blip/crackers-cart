@@ -249,6 +249,41 @@ textarea.input { min-height: 84px; resize: vertical; }
 }
 .stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
+[data-open] { cursor: pointer; }
+.product .name[data-open]:hover { color: var(--brand); }
+
+/* product detail sheet: bottom sheet on phones, centred card on larger screens */
+dialog.sheet {
+  width: min(520px, 100vw); max-width: 100vw; max-height: 92dvh; padding: 0; margin: auto auto 0; overflow: hidden;
+  border-radius: 28px 28px 0 0; display: none; flex-direction: column;
+}
+dialog.sheet[open] { display: flex; animation: sheet-up .28s cubic-bezier(.2,.9,.3,1); }
+@keyframes sheet-up { from { transform: translateY(100%); } }
+@media (min-width: 640px) {
+  dialog.sheet { margin: auto; border-radius: 28px; max-height: 88dvh; }
+  dialog.sheet[open] { animation: pop .2s ease-out; }
+}
+.sheet-close { position: absolute; top: 14px; right: 14px; z-index: 2; background: color-mix(in srgb, var(--surface) 85%, transparent); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); box-shadow: var(--shadow-sm); border-radius: 999px; }
+.sheet-scroll { overflow-y: auto; padding: 12px 12px 4px; }
+.sheet-img { aspect-ratio: 1 / 1; max-height: 52dvh; width: 100%; border-radius: 20px; }
+.sheet-img .ph { font-size: 3.4rem; }
+.sheet-img .off-tag { top: 12px; left: 12px; font-size: .8rem; padding: 5px 10px; }
+.sheet-info { padding: 16px 8px 8px; }
+.sheet-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.sheet-info h2 { font-size: 1.4rem; font-weight: 800; }
+.sheet-info .price { padding-top: 8px; }
+.sheet-info .price b { font-size: 1.6rem; letter-spacing: -.02em; }
+.sheet-info .price s, .sheet-info .price .unit { font-size: .9rem; }
+.save-line { color: var(--ok); font-weight: 700; font-size: .86rem; margin-top: 2px; }
+.sheet-desc { color: var(--muted); margin: 12px 0 0; white-space: pre-line; }
+.sheet-foot {
+  display: flex; gap: 10px; align-items: center; padding: 12px 16px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line); background: var(--surface);
+}
+.sheet-foot .btn { flex: 1; }
+.sheet-stepper { width: 132px; height: 54px; border-radius: 16px; flex: 0 0 auto; }
+.sheet-stepper button { width: 44px; }
+
 /* skeleton loading */
 .skeleton .thumb, .skeleton .sk { background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
 .skeleton .sk { height: 12px; border-radius: 6px; margin-top: 8px; }
