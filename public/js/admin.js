@@ -438,7 +438,7 @@
         <br><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([o.deliveryAddress, o.deliveryLandmark, o.deliveryPincode].filter(Boolean).join(', '))}" target="_blank" rel="noopener">Open in Maps ↗</a></div>`
         : '<div class="small" style="margin-bottom:8px">🏪 Pickup at store</div>'}
       <table class="data"><thead><tr><th>Item</th><th class="r">Rate</th><th class="r">Qty</th><th class="r">Amount</th></tr></thead><tbody>
-        ${o.lines.map((l) => `<tr><td>${esc(l.name)}</td><td class="r">${money(l.price)}</td><td class="r">${l.qty}</td><td class="r">${money(l.total)}</td></tr>`).join('')}
+        ${o.lines.map((l) => `<tr><td>${esc(l.name)}</td><td class="r">${l.listPrice && l.listPrice !== l.price ? `<s class="muted small">${money(l.listPrice)}</s> ` : ''}${money(l.price)}</td><td class="r">${l.qty}</td><td class="r">${money(l.total)}</td></tr>`).join('')}
       </tbody></table>
       <table class="totals" style="margin-top:8px">
         <tr><td>Items total</td><td>${money(o.subtotal)}</td></tr>
@@ -446,6 +446,7 @@
         ${o.tax ? `<tr><td>Tax (${o.taxPercent}%)</td><td>${money(o.tax)}</td></tr>` : ''}
         ${o.fulfilment === 'delivery' ? `<tr><td>Delivery</td><td>${o.deliveryCharge ? money(o.deliveryCharge) : 'Free'}</td></tr>` : ''}
         ${o.roundOff ? `<tr><td class="muted">Round off</td><td class="muted">${money(o.roundOff)}</td></tr>` : ''}
+        ${o.adjustment ? `<tr class="${o.adjustment < 0 ? 'disc' : ''}"><td>Price adjustment</td><td>${o.adjustment < 0 ? '−' : '+'}${money(Math.abs(o.adjustment))}</td></tr>` : ''}
         <tr class="grand"><td>Total</td><td>${money(o.total)}</td></tr>
       </table>`;
     const btns = [];
@@ -604,7 +605,7 @@
 
   /* ---------- counter billing ---------- */
   const CTR_KEY = 'cc_counter_v1';
-  const ctr = { items: [], byId: new Map(), lines: safeGet(CTR_KEY, []) || [], quote: null, busy: false };
+  const ctr = { items: [], byId: new Map(), lines: safeGet(CTR_KEY, []) || [], quote: null, busy: false, finalTotal: null };
   const ctrSave = () => safeSet(CTR_KEY, ctr.lines);
   async function loadCounter() {
     ctr.items = (await api('/api/admin/items')).filter((i) => i.active || i.totalStock > 0);
@@ -642,21 +643,30 @@
     }
     $('#ctrLines').innerHTML = ctr.lines.map((l) => {
       const it = ctr.byId.get(l.itemId);
+      const rate = l.price ?? it.price;
+      const changed = l.price != null && l.price !== it.price;
       return `<div class="ctr-line">
-        <div class="ctr-line-name"><b>${esc(it.name)}</b><small>${money(it.price)} × ${l.qty}</small></div>
+        <div class="ctr-line-name"><b>${esc(it.name)}</b>
+          <label class="ctr-rate${changed ? ' changed' : ''}">₹<input class="input num" type="number" inputmode="decimal" min="0" step="1"
+            value="${rate / 100}" data-rate="${it.id}" aria-label="Rate for ${esc(it.name)}"> × ${l.qty}
+            ${changed ? `<s>${money(it.price)}</s>` : ''}</label></div>
         ${stepperHtml(it.id, l.qty, it.totalStock)}
-        <b class="num ctr-line-total">${money(it.price * l.qty)}</b>
+        <b class="num ctr-line-total">${money(rate * l.qty)}</b>
       </div>`;
     }).join('');
     try {
-      ctr.quote = await api('/api/admin/counter/quote', { method: 'POST', body: { items: ctr.lines } });
+      ctr.quote = await api('/api/admin/counter/quote', { method: 'POST', body: { items: ctr.lines, finalTotal: ctr.finalTotal } });
     } catch (e) { toast(e.message, true); return; }
     const q = ctr.quote;
-    const rows = [`<tr><td>Items total</td><td>${money(q.subtotal)}</td></tr>`];
+    const rows = [];
+    if (q.listSubtotal !== q.subtotal) rows.push(`<tr><td class="muted">At list rates</td><td class="muted">${money(q.listSubtotal)}</td></tr>`);
+    rows.push(`<tr><td>Items total</td><td>${money(q.subtotal)}</td></tr>`);
     if (q.discount) rows.push(`<tr class="disc"><td>${esc(q.discountLabel)}</td><td>−${money(q.discount)}</td></tr>`);
     if (q.tax) rows.push(`<tr><td>Tax (${q.taxPercent}%)</td><td>${money(q.tax)}</td></tr>`);
     if (q.roundOff) rows.push(`<tr><td class="muted">Round off</td><td class="muted">${q.roundOff > 0 ? '+' : '−'}${money(Math.abs(q.roundOff))}</td></tr>`);
+    if (q.adjustment) rows.push(`<tr class="${q.adjustment < 0 ? 'disc' : ''}"><td>Agreed amount</td><td>${q.adjustment < 0 ? '−' : '+'}${money(Math.abs(q.adjustment))}</td></tr>`);
     rows.push(`<tr class="grand"><td>Total</td><td>${money(q.total)}</td></tr>`);
+    if (q.listSubtotal - q.subtotal - (q.adjustment || 0) > 0) rows.push(`<tr><td colspan="2" class="small muted">Customer saves ${money(q.listSubtotal - q.subtotal - (q.adjustment || 0))} vs list rates${q.discount ? ', plus the offer' : ''}</td></tr>`);
     if (q.errors.length) rows.push(`<tr><td colspan="2" style="color:var(--danger);font-weight:700">${q.errors.map((e) => esc(e.message)).join('<br>')}</td></tr>`);
     $('#ctrTotals').innerHTML = rows.join('');
     $$('.ctr-actions button').forEach((b) => { b.disabled = q.errors.length > 0 || ctr.busy; });
@@ -689,6 +699,30 @@
   $('#ctrClear').addEventListener('click', () => {
     if (ctr.lines.length && !confirm('Clear this bill?')) return;
     ctr.lines = []; $('#ctrName').value = ''; $('#ctrPhone').value = '';
+    ctr.finalTotal = null; $('#ctrFinal').value = '';
+    renderCtrBill();
+  });
+  // Agreed rate for one line (empty = back to the list rate).
+  $('#ctrLines').addEventListener('change', (e) => {
+    const input = e.target.closest('[data-rate]');
+    if (!input) return;
+    const id = Number(input.dataset.rate);
+    const l = ctr.lines.find((x) => x.itemId === id);
+    const it = ctr.byId.get(id);
+    const v = input.value.trim();
+    if (!l) return;
+    if (v === '' || !(Number(v) >= 0)) delete l.price;
+    else {
+      const p = Math.round(Number(v) * 100);
+      if (p === it.price) delete l.price; else l.price = p;
+    }
+    renderCtrBill();
+  });
+  // Agreed final amount for the whole bill (empty = use the calculated total).
+  $('#ctrFinal').addEventListener('change', () => {
+    const v = $('#ctrFinal').value.trim();
+    ctr.finalTotal = v === '' || !(Number(v) >= 0) ? null : Math.round(Number(v) * 100);
+    if (ctr.finalTotal === null) $('#ctrFinal').value = '';
     renderCtrBill();
   });
   $('.ctr-actions').addEventListener('click', async (e) => {
@@ -702,12 +736,13 @@
     try {
       const r = await api('/api/admin/counter/bills', {
         method: 'POST',
-        body: { items: ctr.lines, customerName: $('#ctrName').value, customerPhone: $('#ctrPhone').value, paidBy: pay === 'qr' ? undefined : pay },
+        body: { items: ctr.lines, finalTotal: ctr.finalTotal, customerName: $('#ctrName').value, customerPhone: $('#ctrPhone').value, paidBy: pay === 'qr' ? undefined : pay },
       });
       const url = `/bill?id=${r.id}&t=${r.token}`;
       if (win) win.location = url;
       toast(pay === 'qr' ? `Bill ${r.billNo} created: customer can scan the QR` : `Bill ${r.billNo} · ${money(r.total)} paid by ${pay === 'cash' ? 'cash' : 'UPI'}`);
       ctr.lines = []; $('#ctrName').value = ''; $('#ctrPhone').value = '';
+      ctr.finalTotal = null; $('#ctrFinal').value = '';
       await loadCounter();
       $('#ctrSearch').value = ''; renderCtrResults();
     } catch (err) {

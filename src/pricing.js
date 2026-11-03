@@ -74,6 +74,7 @@ function computeBill({ cart, items, discounts, categoryNames = new Map(), taxPer
       image: item.image,
       category_id: item.category_id,
       price: item.price,
+      listPrice: item.list_price ?? item.price, // differs only when staff agreed a different rate at the counter
       qty,
       total: item.price * qty,
     });

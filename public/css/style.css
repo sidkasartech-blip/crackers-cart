@@ -318,6 +318,11 @@ dialog.sheet[open] { display: flex; animation: sheet-up .28s cubic-bezier(.2,.9,
 .ctr-line .stepper { height: 36px; width: 116px; border-radius: 10px; box-shadow: none; }
 .ctr-line .stepper button { width: 36px; }
 .ctr-line-total { min-width: 64px; text-align: right; }
+.ctr-rate { display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: .82rem; font-weight: 700; color: var(--muted); flex-wrap: wrap; }
+.ctr-rate input { width: 78px; min-height: 34px; padding: 4px 8px; border-radius: 8px; }
+.ctr-rate.changed input { border-color: var(--brand); background: var(--brand-soft); color: var(--text); }
+.ctr-rate s { font-weight: 600; }
+.ctr-final { margin-top: 10px; }
 .ctr-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
 .ctr-actions [data-pay="qr"] { grid-column: 1 / -1; }
 .qr-pair { display: grid; gap: 20px; }

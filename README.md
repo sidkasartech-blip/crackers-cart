@@ -78,6 +78,7 @@ At checkout customers choose **Pickup at store** or **Home delivery**. For deliv
 ## Selling at the shop
 
 - **🧾 New bill (admin)** is the counter screen for the store manager. Search by name or rate-card number (e.g. `14`, then Enter adds it), tap items, then **Paid cash**, **Paid UPI**, or **Show UPI QR (pay later)**. Counter bills take **Store** stock first, then Online, and are tagged 🧾 Counter.
+- **Flexible prices at the counter:** on a New bill, tap an item's rate to type the price you agreed (e.g. ₹77 → ₹70, or ₹80), and/or type a **Final amount agreed** for the whole bill. The bill shows the agreed rate (with the list rate struck through) and a *Price adjustment* line; the UPI QR asks for the exact final amount. The item's own rate isn't changed, and the CSV keeps both the list and the charged rate. Only staff can do this; customers' own bills always use the listed rates.
 - **In-store QR** (Store QR tab, second poster) opens the shop in "in the shop" mode: no delivery option, and bills are tagged 🏪 In store and take Store stock first. The normal QR / link stays online-first.
 - **Bills** can be filtered to *Shop only*, the dashboard splits today's sales into online and shop, and the CSV export has a *Sold* column.
 

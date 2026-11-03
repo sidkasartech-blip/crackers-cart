@@ -192,6 +192,9 @@ const MIGRATIONS = [
   { table: 'orders', column: 'paid_by', sql: "ALTER TABLE orders ADD COLUMN paid_by TEXT NOT NULL DEFAULT ''" },
   // Where the sale happened: 'online' (website), 'store' (customer billed themselves at the shop), 'counter' (staff billed).
   { table: 'orders', column: 'channel', sql: "ALTER TABLE orders ADD COLUMN channel TEXT NOT NULL DEFAULT 'online'" },
+  // Counter bills can use an agreed rate per item and/or an agreed final amount.
+  { table: 'order_items', column: 'list_price', sql: 'ALTER TABLE order_items ADD COLUMN list_price INTEGER NOT NULL DEFAULT 0' }, // 0 = same as price
+  { table: 'orders', column: 'adjustment', sql: 'ALTER TABLE orders ADD COLUMN adjustment INTEGER NOT NULL DEFAULT 0' },      // + extra / - less, in paise
 ];
 async function migrate(db) {
   const client = db.client;

@@ -109,19 +109,43 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
   const sellable = (row, settings, channel = 'online') =>
     row.stock + (channel !== 'online' || sharesStore(settings) ? (row.store_stock || 0) : 0);
   const channelOf = (v) => (v === 'store' || v === 'counter' ? v : 'online');
-  const quote = async (body, settings, q = db, channel = channelOf(body.channel)) => computeBill({
-    ...(await (async () => {
-      const ctx = await loadPricingContext(q);
-      ctx.items = new Map([...ctx.items].map(([id, r]) => [id, { ...r, stock: sellable(r, settings, channel) }]));
-      return ctx;
-    })()),
-    cart: body.items,
-    coupon: body.coupon,
-    taxPercent: Number(settings.tax_percent) || 0,
-    delivery: wantsDelivery(body, settings)
-      ? { charge: Math.round((Number(settings.delivery_charge) || 0) * 100), freeAbove: Math.round((Number(settings.delivery_free_above) || 0) * 100) }
-      : null,
-  });
+  const paiseOrNull = (v, field) => {
+    if (v === undefined || v === null || v === '') return null;
+    const n = Math.round(Number(v));
+    if (!Number.isFinite(n) || n < 0 || n > 1e9) throw bad(`${field} must be 0 or more`);
+    return n;
+  };
+  const quote = async (body, settings, q = db, channel = channelOf(body.channel)) => {
+    const ctx = await loadPricingContext(q);
+    ctx.items = new Map([...ctx.items].map(([id, r]) => [id, { ...r, stock: sellable(r, settings, channel) }]));
+    const counter = channel === 'counter';
+    // Counter only (staff): an agreed rate per item. Customers' own bills always use the listed rate.
+    if (counter) {
+      for (const l of Array.isArray(body.items) ? body.items : []) {
+        const r = ctx.items.get(Number(l.itemId));
+        const p = paiseOrNull(l.price, 'Rate');
+        if (r && p !== null && p !== r.price) ctx.items.set(r.id, { ...r, list_price: r.price, price: p });
+      }
+    }
+    const bill = computeBill({
+      ...ctx,
+      cart: body.items,
+      coupon: body.coupon,
+      taxPercent: Number(settings.tax_percent) || 0,
+      delivery: wantsDelivery(body, settings)
+        ? { charge: Math.round((Number(settings.delivery_charge) || 0) * 100), freeAbove: Math.round((Number(settings.delivery_free_above) || 0) * 100) }
+        : null,
+    });
+    // Counter only: an agreed final amount; the difference is shown on the bill as an adjustment.
+    const finalTotal = counter ? paiseOrNull(body.finalTotal, 'Final amount') : null;
+    bill.adjustment = 0;
+    if (finalTotal !== null && bill.lines.length) {
+      bill.adjustment = finalTotal - bill.total;
+      bill.total = finalTotal;
+    }
+    bill.listSubtotal = bill.lines.reduce((s, l) => s + l.listPrice * l.qty, 0);
+    return bill;
+  };
 
   const orderOut = async (order, settings, withLines = true) => {
     const out = {
@@ -134,9 +158,11 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
       deliveryLandmark: order.delivery_landmark || '', deliveryPincode: order.delivery_pincode || '',
       deliveryCharge: order.delivery_charge || 0,
       payPref: order.pay_pref || 'upi', paidBy: order.paid_by || '', channel: order.channel || 'online',
+      adjustment: order.adjustment || 0,
     };
     if (withLines) {
-      out.lines = await db.all('SELECT item_id AS itemId, name, unit, price, qty, total FROM order_items WHERE order_id = ? ORDER BY id', [order.id]);
+      out.lines = (await db.all('SELECT item_id AS itemId, name, unit, price, qty, total, list_price FROM order_items WHERE order_id = ? ORDER BY id', [order.id]))
+        .map(({ list_price: lp, ...l }) => ({ ...l, listPrice: lp || l.price }));
     }
     if (settings) out.upiUri = upiUri(settings, order);
     return out;
@@ -204,12 +230,12 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
       const info = await t.run(`INSERT INTO orders
         (token, bill_no, customer_name, customer_phone, subtotal, discount, discount_label, tax, tax_percent, round_off, total,
          fulfilment, delivery_address, delivery_landmark, delivery_pincode, delivery_charge, pay_pref, channel,
-         status, paid_by, paid_at)
-        VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${paidBy ? "datetime('now')" : 'NULL'})`, [
+         status, paid_by, adjustment, paid_at)
+        VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${paidBy ? "datetime('now')" : 'NULL'})`, [
         token, name, phone,
         bill.subtotal, bill.discount, bill.discountLabel, bill.tax, bill.taxPercent, bill.roundOff, bill.total,
         delivery ? 'delivery' : 'pickup', delivery ? address : '', delivery ? landmark : '', delivery ? pincode : '', bill.deliveryCharge, payPref, channel,
-        paidBy ? 'paid' : 'pending', paidBy || '',
+        paidBy ? 'paid' : 'pending', paidBy || '', bill.adjustment || 0,
       ]);
       const id = info.lastInsertRowid;
       const billNo = `${settings.bill_prefix || ''}${String(id).padStart(5, '0')}`;
@@ -231,8 +257,8 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
         const taken = await t.run('UPDATE items SET stock = stock - ?, store_stock = store_stock - ? WHERE id = ? AND stock >= ? AND store_stock >= ?',
           [fromOnline, fromStore, l.itemId, fromOnline, fromStore]);
         if (taken.changes !== 1) throw bad(`${l.name} just went out of stock`);
-        await t.run('INSERT INTO order_items (order_id, item_id, name, unit, price, qty, total, from_online, from_store) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [id, l.itemId, l.name, l.unit, l.price, l.qty, l.total, fromOnline, fromStore]);
+        await t.run('INSERT INTO order_items (order_id, item_id, name, unit, price, qty, total, from_online, from_store, list_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [id, l.itemId, l.name, l.unit, l.price, l.qty, l.total, fromOnline, fromStore, l.listPrice !== l.price ? l.listPrice : 0]);
       }
       return { id, token, billNo, total: bill.total };
     });
@@ -548,17 +574,17 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
 
   admin.get('/orders.csv', async (req, res) => {
     const rows = await db.all(`SELECT o.bill_no, datetime(o.created_at, ${LOCAL}) AS created, o.status, o.customer_name, o.customer_phone,
-      o.fulfilment, o.delivery_address, o.delivery_landmark, o.delivery_pincode, o.delivery_charge, o.pay_pref, o.paid_by, o.channel,
-      oi.name, oi.qty, oi.price, oi.total, o.discount, o.tax, o.total AS bill_total
+      o.fulfilment, o.delivery_address, o.delivery_landmark, o.delivery_pincode, o.delivery_charge, o.pay_pref, o.paid_by, o.channel, o.adjustment,
+      oi.name, oi.qty, oi.price, oi.list_price, oi.total, o.discount, o.tax, o.total AS bill_total
       FROM orders o JOIN order_items oi ON oi.order_id = o.id ORDER BY o.id DESC, oi.id`);
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rupees = (p) => (p / 100).toFixed(2);
-    const lines = [['Bill', 'Date', 'Sold', 'Status', 'Paid by', 'Customer', 'Phone', 'Pickup/Delivery', 'Delivery address', 'Landmark', 'Pincode', 'Item', 'Qty', 'Rate', 'Line total',
-      'Bill discount', 'Bill tax', 'Delivery charge', 'Bill total'].map(esc).join(',')];
+    const lines = [['Bill', 'Date', 'Sold', 'Status', 'Paid by', 'Customer', 'Phone', 'Pickup/Delivery', 'Delivery address', 'Landmark', 'Pincode', 'Item', 'Qty', 'Rate', 'List rate', 'Line total',
+      'Bill discount', 'Bill tax', 'Delivery charge', 'Bill adjustment', 'Bill total'].map(esc).join(',')];
     for (const r of rows) {
       lines.push([r.bill_no, r.created, { online: 'Online', store: 'In store (self)', counter: 'Counter' }[r.channel] || 'Online', r.status, r.status === 'paid' ? (r.paid_by === 'cash' ? 'Cash' : 'UPI') : `(chose ${r.pay_pref === 'cash' ? 'cash' : 'UPI'})`, r.customer_name, r.customer_phone, r.fulfilment === 'delivery' ? 'Delivery' : 'Pickup',
-        r.delivery_address, r.delivery_landmark, r.delivery_pincode, r.name, r.qty, rupees(r.price), rupees(r.total),
-        rupees(r.discount), rupees(r.tax), rupees(r.delivery_charge || 0), rupees(r.bill_total)].map(esc).join(','));
+        r.delivery_address, r.delivery_landmark, r.delivery_pincode, r.name, r.qty, rupees(r.price), rupees(r.list_price || r.price), rupees(r.total),
+        rupees(r.discount), rupees(r.tax), rupees(r.delivery_charge || 0), rupees(r.adjustment || 0), rupees(r.bill_total)].map(esc).join(','));
     }
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="orders.csv"');

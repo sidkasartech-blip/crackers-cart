@@ -71,6 +71,7 @@
     if (o.tax) rows.push(`<tr><td>Tax (${o.taxPercent}%)</td><td>${money(o.tax)}</td></tr>`);
     if (o.fulfilment === 'delivery') rows.push(`<tr><td>Delivery</td><td>${o.deliveryCharge ? money(o.deliveryCharge) : 'Free'}</td></tr>`);
     if (o.roundOff) rows.push(`<tr><td class="muted">Round off</td><td class="muted">${o.roundOff > 0 ? '+' : '−'}${money(Math.abs(o.roundOff))}</td></tr>`);
+    if (o.adjustment) rows.push(`<tr class="${o.adjustment < 0 ? 'disc' : ''}"><td>Price adjustment</td><td>${o.adjustment < 0 ? '−' : '+'}${money(Math.abs(o.adjustment))}</td></tr>`);
     rows.push(`<tr class="grand"><td>Total</td><td>${money(o.total)}</td></tr>`);
 
     $('#bill').innerHTML = `
@@ -92,7 +93,7 @@
         : (o.shop.delivery_enabled === '1' ? '<div class="deliver-box"><b>🏪 Pickup at store</b></div>' : '')}
       <table class="items">
         <thead><tr><th>Item</th><th class="r">Rate</th><th class="r">Qty</th><th class="r">Amount</th></tr></thead>
-        <tbody>${o.lines.map((l) => `<tr><td>${esc(l.name)}</td><td class="r">${money(l.price)}</td><td class="r">${l.qty}</td><td class="r">${money(l.total)}</td></tr>`).join('')}</tbody>
+        <tbody>${o.lines.map((l) => `<tr><td>${esc(l.name)}</td><td class="r">${l.listPrice && l.listPrice !== l.price ? `<s class="muted small">${money(l.listPrice)}</s> ` : ''}${money(l.price)}</td><td class="r">${l.qty}</td><td class="r">${money(l.total)}</td></tr>`).join('')}</tbody>
       </table>
       <div class="totals-wrap"><table class="totals">${rows.join('')}</table></div>
       ${payBlock(o)}

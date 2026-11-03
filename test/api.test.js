@@ -458,3 +458,52 @@ test('counter and in-store bills take store stock first and are tracked separate
   assert.equal(d.online + d.shop, d.sales);
   assert.match((await call('GET', '/api/admin/orders.csv')).data, /"Counter"/);
 });
+
+test('counter: agreed rate per item and agreed final amount; customers cannot change prices', async (t) => {
+  const { call, close } = await setup();
+  t.after(close);
+  await call('POST', '/api/admin/login', { password: 'admin123' });
+  await call('PUT', '/api/admin/settings', { upi_id: 'shop@okaxis' });
+  const a = (await call('POST', '/api/admin/items', { name: 'Sparkle 77', price: '77', stock: 10, storeStock: 10 })).data;
+  const b = (await call('POST', '/api/admin/items', { name: 'Pot 120', price: '120', stock: 10, storeStock: 10 })).data;
+
+  // ₹77 sold at ₹70 (x2), ₹120 at list rate: 140 + 120 = 260
+  const items = [{ itemId: a.id, qty: 2, price: 7000 }, { itemId: b.id, qty: 1 }];
+  let q = (await call('POST', '/api/admin/counter/quote', { items })).data;
+  assert.equal(q.subtotal, 26000);
+  assert.equal(q.listSubtotal, 27400);
+  assert.equal(q.total, 26000);
+
+  // Rounded to ₹250 for the whole bill.
+  q = (await call('POST', '/api/admin/counter/quote', { items, finalTotal: 25000 })).data;
+  assert.equal(q.total, 25000);
+  assert.equal(q.adjustment, -1000);
+
+  // Charging more than list (₹80) is allowed too.
+  q = (await call('POST', '/api/admin/counter/quote', { items: [{ itemId: a.id, qty: 1, price: 8000 }] })).data;
+  assert.equal(q.total, 8000);
+
+  const c = (await call('POST', '/api/admin/counter/bills', { items, finalTotal: 25000, paidBy: 'upi' })).data;
+  const bill = (await call('GET', `/api/orders/${c.id}?t=${c.token}`)).data;
+  assert.equal(bill.total, 25000);
+  assert.equal(bill.adjustment, -1000);
+  const line = bill.lines.find((l) => l.itemId === a.id);
+  assert.deepEqual([line.price, line.listPrice, line.total], [7000, 7700, 14000]);
+  assert.equal(bill.lines.find((l) => l.itemId === b.id).listPrice, 12000);
+  assert.match(bill.upiUri, /am=250\.00/);
+  // The item's own rate is unchanged.
+  assert.equal((await call('GET', '/api/admin/items')).data.find((i) => i.id === a.id).price, 7700);
+  const csv = (await call('GET', '/api/admin/orders.csv')).data;
+  assert.match(csv, /"Sparkle 77","2","70.00","77.00","140.00"/);
+  assert.match(csv, /"-10.00","250.00"/);
+
+  // Customers (online or in-store) can't set prices or totals: ignored.
+  const o = (await call('POST', '/api/orders', { items: [{ itemId: a.id, qty: 1, price: 100 }], finalTotal: 1, channel: 'store' })).data;
+  const ob = (await call('GET', `/api/orders/${o.id}?t=${o.token}`)).data;
+  assert.equal(ob.total, 7700);
+  assert.equal(ob.adjustment, 0);
+  assert.equal((await call('POST', '/api/quote', { items: [{ itemId: a.id, qty: 1, price: 100 }], finalTotal: 1 })).data.total, 7700);
+
+  // Bad values are refused.
+  assert.equal((await call('POST', '/api/admin/counter/quote', { items: [{ itemId: a.id, qty: 1, price: -5 }] })).status, 400);
+});
