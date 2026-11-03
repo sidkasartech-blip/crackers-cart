@@ -280,3 +280,57 @@ test('a fixed SHOP_DATABASE_URL always wins over the per-deployment integration 
     Object.assign(process.env, keep);
   }
 });
+
+test('home delivery: settings, validation, charge, bill and export', async (t) => {
+  const { call, close } = await setup();
+  t.after(close);
+  await call('POST', '/api/admin/login', { password: 'admin123' });
+  await call('PUT', '/api/admin/settings', { delivery_enabled: true, delivery_charge: '50', delivery_free_above: '2000', delivery_note: 'Within 5 km', upi_id: 'shop@okaxis' });
+  const cat = (await call('GET', '/api/catalog')).data;
+  assert.equal(cat.settings.delivery_enabled, '1');
+  assert.equal(cat.settings.delivery_note, 'Within 5 km');
+  const item = cat.items.find((i) => i.stock >= 3);
+  const items = [{ itemId: item.id, qty: 1 }];
+
+  const pickupQ = (await call('POST', '/api/quote', { items })).data;
+  const delQ = (await call('POST', '/api/quote', { items, fulfilment: 'delivery' })).data;
+  assert.equal(pickupQ.deliveryCharge, 0);
+  assert.equal(delQ.deliveryCharge, 5000);
+  assert.equal(delQ.total, pickupQ.total + 5000);
+
+  // Missing details are refused and nothing is sold.
+  const stockBefore = (await call('GET', '/api/admin/items')).data.find((i) => i.id === item.id).stock;
+  for (const bad of [
+    { customerName: '', customerPhone: '9876543210', deliveryAddress: '12 Market Road, Pune' },
+    { customerName: 'Asha', customerPhone: '12345', deliveryAddress: '12 Market Road, Pune' },
+    { customerName: 'Asha', customerPhone: '9876543210', deliveryAddress: 'short' },
+    { customerName: 'Asha', customerPhone: '9876543210', deliveryAddress: '12 Market Road, Pune', deliveryPincode: '41' },
+  ]) {
+    assert.equal((await call('POST', '/api/orders', { items, fulfilment: 'delivery', ...bad })).status, 400);
+  }
+  assert.equal((await call('GET', '/api/admin/items')).data.find((i) => i.id === item.id).stock, stockBefore);
+
+  const o = await call('POST', '/api/orders', { items, fulfilment: 'delivery', customerName: 'Asha', customerPhone: '098765 43210',
+    deliveryAddress: 'Flat 4, Rose Apts, MG Road, Pune', deliveryLandmark: 'Near temple', deliveryPincode: '411001' });
+  assert.equal(o.status, 201);
+  const bill = (await call('GET', `/api/orders/${o.data.id}?t=${o.data.token}`)).data;
+  assert.equal(bill.fulfilment, 'delivery');
+  assert.equal(bill.deliveryAddress, 'Flat 4, Rose Apts, MG Road, Pune');
+  assert.equal(bill.deliveryPincode, '411001');
+  assert.equal(bill.deliveryCharge, 5000);
+  assert.equal(bill.total, delQ.total);
+  assert.match(bill.upiUri, new RegExp(`am=${(bill.total / 100).toFixed(2)}`));
+
+  // Pickup orders still need no details.
+  const p = await call('POST', '/api/orders', { items });
+  assert.equal(p.status, 201);
+  assert.equal((await call('GET', `/api/orders/${p.data.id}?t=${p.data.token}`)).data.fulfilment, 'pickup');
+
+  const csv = (await call('GET', '/api/admin/orders.csv')).data;
+  assert.match(csv, /"Delivery","Flat 4, Rose Apts, MG Road, Pune","Near temple","411001"/);
+
+  // Switching delivery off refuses delivery orders.
+  await call('PUT', '/api/admin/settings', { delivery_enabled: false });
+  const off = await call('POST', '/api/orders', { items, fulfilment: 'delivery', customerName: 'Asha', customerPhone: '9876543210', deliveryAddress: 'Flat 4, Rose Apts, MG Road, Pune' });
+  assert.equal(off.status, 400);
+});

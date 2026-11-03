@@ -169,6 +169,14 @@
             <label class="field"><span>Payee name</span><input class="input" name="upi_name" placeholder="As registered with your bank"></label>
           </div>
 
+          <h3 style="margin:18px 0 12px">Home delivery</h3>
+          <label class="check"><input type="checkbox" name="delivery_enabled"> Offer home delivery at checkout</label>
+          <div class="row">
+            <label class="field"><span>Delivery charge (₹, 0 = free)</span><input class="input" name="delivery_charge" type="number" min="0" step="1"></label>
+            <label class="field"><span>Free delivery above (₹, 0 = off)</span><input class="input" name="delivery_free_above" type="number" min="0" step="1"></label>
+          </div>
+          <label class="field"><span>Note shown to customers</span><input class="input" name="delivery_note" maxlength="200" placeholder="e.g. We deliver within 5 km, same day before 8 pm"></label>
+
           <h3 style="margin:18px 0 12px">Billing</h3>
           <div class="row">
             <label class="field"><span>Tax % (0 for none)</span><input class="input" name="tax_percent" type="number" min="0" max="100" step="0.01"></label>

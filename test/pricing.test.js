@@ -69,3 +69,17 @@ test('tax on discounted amount and rounding to the rupee', () => {
   assert.equal(b.total, 10600);
   assert.equal(b.roundOff, 39);
 });
+
+test('delivery charge is added, and free above the threshold', () => {
+  const cart = [{ itemId: 1, qty: 2 }]; // ₹200
+  const base = computeBill({ cart, items, discounts: [] });
+  assert.equal(base.deliveryCharge, 0);
+  assert.equal(base.delivery, false);
+  const paid = computeBill({ cart, items, discounts: [], delivery: { charge: 5000, freeAbove: 50000 } });
+  assert.equal(paid.deliveryCharge, 5000);
+  assert.equal(paid.total, 25000);
+  assert.equal(paid.freeDeliveryAddMore, 30000);
+  const free = computeBill({ cart: [{ itemId: 1, qty: 5 }], items, discounts: [], delivery: { charge: 5000, freeAbove: 50000 } });
+  assert.equal(free.deliveryCharge, 0);
+  assert.equal(free.total, 50000);
+});

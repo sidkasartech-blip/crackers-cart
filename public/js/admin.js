@@ -399,7 +399,7 @@
     $('#orderRows').innerHTML = state.orders.length ? state.orders.map((o) => `<tr data-id="${o.id}">
         <td><b>${esc(o.billNo)}</b></td>
         <td class="small">${esc(fmtTime(o.createdAt))}</td>
-        <td>${esc(o.customerName || '—')}<div class="small muted">${esc(o.customerPhone)}</div></td>
+        <td>${o.fulfilment === 'delivery' ? '<span class="badge brand">🚚 Delivery</span> ' : ''}${esc(o.customerName || '—')}<div class="small muted">${esc(o.customerPhone)}</div></td>
         <td class="r num"><b>${money(o.total)}</b></td>
         <td>${statusBadge(o.status)}</td>
         <td class="r" style="white-space:nowrap">
@@ -431,6 +431,10 @@
     $('#orderDlgTitle').innerHTML = `${esc(o.billNo)} ${statusBadge(o.status)}`;
     $('#orderDlgBody').innerHTML = `
       <div class="small muted" style="margin-bottom:8px">${esc(fmtTime(o.createdAt))}${o.customerName ? ' · ' + esc(o.customerName) : ''}${o.customerPhone ? ' · ' + esc(o.customerPhone) : ''}</div>
+      ${o.fulfilment === 'delivery' ? `<div class="banner ok" style="margin:0 0 12px;font-weight:500"><b>🚚 Deliver to:</b> ${esc(o.customerName)}${o.customerPhone ? ` · <a href="tel:${esc(o.customerPhone)}">${esc(o.customerPhone)}</a>` : ''}<br>
+        ${esc(o.deliveryAddress)}${o.deliveryLandmark ? `<br>Landmark: ${esc(o.deliveryLandmark)}` : ''}${o.deliveryPincode ? `<br>Pincode: ${esc(o.deliveryPincode)}` : ''}
+        <br><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([o.deliveryAddress, o.deliveryLandmark, o.deliveryPincode].filter(Boolean).join(', '))}" target="_blank" rel="noopener">Open in Maps ↗</a></div>`
+        : '<div class="small" style="margin-bottom:8px">🏪 Pickup at store</div>'}
       <table class="data"><thead><tr><th>Item</th><th class="r">Rate</th><th class="r">Qty</th><th class="r">Amount</th></tr></thead><tbody>
         ${o.lines.map((l) => `<tr><td>${esc(l.name)}</td><td class="r">${money(l.price)}</td><td class="r">${l.qty}</td><td class="r">${money(l.total)}</td></tr>`).join('')}
       </tbody></table>
@@ -438,6 +442,7 @@
         <tr><td>Items total</td><td>${money(o.subtotal)}</td></tr>
         ${o.discount ? `<tr class="disc"><td>${esc(o.discountLabel)}</td><td>−${money(o.discount)}</td></tr>` : ''}
         ${o.tax ? `<tr><td>Tax (${o.taxPercent}%)</td><td>${money(o.tax)}</td></tr>` : ''}
+        ${o.fulfilment === 'delivery' ? `<tr><td>Delivery</td><td>${o.deliveryCharge ? money(o.deliveryCharge) : 'Free'}</td></tr>` : ''}
         ${o.roundOff ? `<tr><td class="muted">Round off</td><td class="muted">${money(o.roundOff)}</td></tr>` : ''}
         <tr class="grand"><td>Total</td><td>${money(o.total)}</td></tr>
       </table>`;

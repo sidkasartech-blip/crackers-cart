@@ -50,10 +50,29 @@
         <div class="nudge" id="nudge" style="margin-top:8px"></div>
 
         <hr class="divider">
-        <div class="card-title">Your details <span style="text-transform:none;letter-spacing:0;font-weight:600">(optional)</span></div>
+        <div id="fulfilWrap" class="hidden">
+          <div class="card-title">How would you like it?</div>
+          <div class="fulfil" role="radiogroup" aria-label="Pickup or delivery">
+            <label class="fulfil-opt"><input type="radio" name="fulfil" value="pickup" checked>
+              <span class="fo-ic">🏪</span><span><b>Pickup at store</b><small>Collect from our shop</small></span></label>
+            <label class="fulfil-opt"><input type="radio" name="fulfil" value="delivery">
+              <span class="fo-ic">🚚</span><span><b>Home delivery</b><small id="deliveryPrice">Delivered to you</small></span></label>
+          </div>
+          <div class="muted small" id="deliveryNote" style="margin:-4px 0 12px"></div>
+        </div>
+
+        <div class="card-title" id="detailsTitle">Your details <span class="opt">(optional)</span></div>
         <div class="row">
-          <label class="field"><span>Name</span><input class="input" id="custName" autocomplete="name" maxlength="80"></label>
-          <label class="field"><span>Phone</span><input class="input" id="custPhone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20"></label>
+          <label class="field"><span>Name <i class="req hidden">*</i></span><input class="input" id="custName" autocomplete="name" maxlength="80"></label>
+          <label class="field"><span>Mobile number <i class="req hidden">*</i></span><input class="input" id="custPhone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" placeholder="10-digit mobile"></label>
+        </div>
+        <div id="addressFields" class="hidden">
+          <label class="field"><span>Delivery address <i class="req">*</i></span>
+            <textarea class="input" id="delAddress" autocomplete="street-address" maxlength="500" rows="3" placeholder="House / flat no., street, area, city"></textarea></label>
+          <div class="row">
+            <label class="field"><span>Landmark</span><input class="input" id="delLandmark" maxlength="120" placeholder="Near…"></label>
+            <label class="field"><span>Pincode</span><input class="input" id="delPincode" inputmode="numeric" autocomplete="postal-code" maxlength="6" placeholder="6 digits"></label>
+          </div>
         </div>
 
         <div id="formErr" class="banner danger hidden"></div>

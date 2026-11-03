@@ -11,6 +11,7 @@ const backups = require('./backup');
 const PUBLIC_SETTING_KEYS = [
   'shop_name', 'tagline', 'phone', 'address', 'gstin', 'tax_percent', 'bill_footer',
   'min_order', 'shop_open', 'closed_message',
+  'delivery_enabled', 'delivery_charge', 'delivery_free_above', 'delivery_note',
 ];
 const EDITABLE_SETTING_KEYS = [...PUBLIC_SETTING_KEYS, 'upi_id', 'upi_name', 'bill_prefix', 'site_url'];
 
@@ -101,11 +102,15 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
     };
   };
 
+  const wantsDelivery = (body, settings) => body.fulfilment === 'delivery' && settings.delivery_enabled === '1';
   const quote = async (body, settings, q = db) => computeBill({
     ...(await loadPricingContext(q)),
     cart: body.items,
     coupon: body.coupon,
     taxPercent: Number(settings.tax_percent) || 0,
+    delivery: wantsDelivery(body, settings)
+      ? { charge: Math.round((Number(settings.delivery_charge) || 0) * 100), freeAbove: Math.round((Number(settings.delivery_free_above) || 0) * 100) }
+      : null,
   });
 
   const orderOut = async (order, settings, withLines = true) => {
@@ -115,6 +120,9 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
       subtotal: order.subtotal, discount: order.discount, discountLabel: order.discount_label,
       tax: order.tax, taxPercent: order.tax_percent, roundOff: order.round_off, total: order.total,
       status: order.status, createdAt: order.created_at, paidAt: order.paid_at,
+      fulfilment: order.fulfilment || 'pickup', deliveryAddress: order.delivery_address || '',
+      deliveryLandmark: order.delivery_landmark || '', deliveryPincode: order.delivery_pincode || '',
+      deliveryCharge: order.delivery_charge || 0,
     };
     if (withLines) {
       out.lines = await db.all('SELECT item_id AS itemId, name, unit, price, qty, total FROM order_items WHERE order_id = ? ORDER BY id', [order.id]);
@@ -156,6 +164,20 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
     const settings = await getSettings(db);
     if (settings.shop_open !== '1') throw bad(settings.closed_message || 'Shop is closed');
 
+    if (body.fulfilment === 'delivery' && settings.delivery_enabled !== '1') throw bad('Home delivery is not available right now. Please choose pickup.');
+    const delivery = wantsDelivery(body, settings);
+    const name = str(body.customerName, 80);
+    const phone = str(body.customerPhone, 20);
+    const address = str(body.deliveryAddress, 500);
+    const landmark = str(body.deliveryLandmark, 120);
+    const pincode = str(body.deliveryPincode, 10);
+    if (delivery) {
+      if (!name) throw bad('Please enter your name for delivery');
+      if (!/^(\+?91|0)?[6-9]\d{9}$/.test(phone.replace(/[\s-]/g, ''))) throw bad('Please enter a valid 10-digit mobile number for delivery');
+      if (address.length < 10) throw bad('Please enter your full delivery address');
+      if (pincode && !/^\d{6}$/.test(pincode)) throw bad('Pincode should be 6 digits');
+    }
+
     const order = await db.tx(async (t) => {
       const bill = await quote(body, settings, t);
       if (bill.errors.length) throw bad('Some items in your cart need attention', { errors: bill.errors });
@@ -165,10 +187,12 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
 
       const token = crypto.randomBytes(12).toString('hex');
       const info = await t.run(`INSERT INTO orders
-        (token, bill_no, customer_name, customer_phone, subtotal, discount, discount_label, tax, tax_percent, round_off, total)
-        VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
-        token, str(body.customerName, 80), str(body.customerPhone, 20),
+        (token, bill_no, customer_name, customer_phone, subtotal, discount, discount_label, tax, tax_percent, round_off, total,
+         fulfilment, delivery_address, delivery_landmark, delivery_pincode, delivery_charge)
+        VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+        token, name, phone,
         bill.subtotal, bill.discount, bill.discountLabel, bill.tax, bill.taxPercent, bill.roundOff, bill.total,
+        delivery ? 'delivery' : 'pickup', delivery ? address : '', delivery ? landmark : '', delivery ? pincode : '', bill.deliveryCharge,
       ]);
       const id = info.lastInsertRowid;
       const billNo = `${settings.bill_prefix || ''}${String(id).padStart(5, '0')}`;
@@ -467,14 +491,17 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
 
   admin.get('/orders.csv', async (req, res) => {
     const rows = await db.all(`SELECT o.bill_no, datetime(o.created_at, ${LOCAL}) AS created, o.status, o.customer_name, o.customer_phone,
+      o.fulfilment, o.delivery_address, o.delivery_landmark, o.delivery_pincode, o.delivery_charge,
       oi.name, oi.qty, oi.price, oi.total, o.discount, o.tax, o.total AS bill_total
       FROM orders o JOIN order_items oi ON oi.order_id = o.id ORDER BY o.id DESC, oi.id`);
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rupees = (p) => (p / 100).toFixed(2);
-    const lines = [['Bill', 'Date', 'Status', 'Customer', 'Phone', 'Item', 'Qty', 'Rate', 'Line total', 'Bill discount', 'Bill tax', 'Bill total'].map(esc).join(',')];
+    const lines = [['Bill', 'Date', 'Status', 'Customer', 'Phone', 'Pickup/Delivery', 'Delivery address', 'Landmark', 'Pincode', 'Item', 'Qty', 'Rate', 'Line total',
+      'Bill discount', 'Bill tax', 'Delivery charge', 'Bill total'].map(esc).join(',')];
     for (const r of rows) {
-      lines.push([r.bill_no, r.created, r.status, r.customer_name, r.customer_phone, r.name, r.qty, rupees(r.price), rupees(r.total),
-        rupees(r.discount), rupees(r.tax), rupees(r.bill_total)].map(esc).join(','));
+      lines.push([r.bill_no, r.created, r.status, r.customer_name, r.customer_phone, r.fulfilment === 'delivery' ? 'Delivery' : 'Pickup',
+        r.delivery_address, r.delivery_landmark, r.delivery_pincode, r.name, r.qty, rupees(r.price), rupees(r.total),
+        rupees(r.discount), rupees(r.tax), rupees(r.delivery_charge || 0), rupees(r.bill_total)].map(esc).join(','));
     }
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="orders.csv"');
@@ -562,10 +589,12 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
     const b = req.body || {};
     if (b.tax_percent !== undefined && !(Number(b.tax_percent) >= 0 && Number(b.tax_percent) <= 100)) throw bad('Tax must be 0–100');
     if (b.min_order !== undefined && !(Number(b.min_order) >= 0)) throw bad('Minimum order must be 0 or more');
+    if (b.delivery_charge !== undefined && !(Number(b.delivery_charge) >= 0)) throw bad('Delivery charge must be 0 or more');
+    if (b.delivery_free_above !== undefined && !(Number(b.delivery_free_above) >= 0)) throw bad('Free delivery amount must be 0 or more');
     if (b.upi_id && !/^[\w.\-]{2,}@[a-zA-Z][\w.\-]*$/.test(String(b.upi_id).trim())) throw bad('UPI ID looks wrong (expected something like name@bank)');
     const stmts = EDITABLE_SETTING_KEYS.filter((k) => b[k] !== undefined).map((k) => ({
       sql: 'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-      args: [k, k === 'shop_open' ? String(bool(b[k])) : str(b[k], 1000)],
+      args: [k, k === 'shop_open' || k === 'delivery_enabled' ? String(bool(b[k])) : str(b[k], 1000)],
     }));
     if (stmts.length) await db.client.batch(stmts, 'write');
     res.json({ ok: true });

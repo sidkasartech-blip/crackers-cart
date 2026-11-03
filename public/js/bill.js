@@ -30,6 +30,7 @@
     const rows = [`<tr><td>Items total</td><td>${money(o.subtotal)}</td></tr>`];
     if (o.discount) rows.push(`<tr class="disc"><td>${esc(o.discountLabel)}</td><td>−${money(o.discount)}</td></tr>`);
     if (o.tax) rows.push(`<tr><td>Tax (${o.taxPercent}%)</td><td>${money(o.tax)}</td></tr>`);
+    if (o.fulfilment === 'delivery') rows.push(`<tr><td>Delivery</td><td>${o.deliveryCharge ? money(o.deliveryCharge) : 'Free'}</td></tr>`);
     if (o.roundOff) rows.push(`<tr><td class="muted">Round off</td><td class="muted">${o.roundOff > 0 ? '+' : '−'}${money(Math.abs(o.roundOff))}</td></tr>`);
     rows.push(`<tr class="grand"><td>Total</td><td>${money(o.total)}</td></tr>`);
 
@@ -43,8 +44,11 @@
       <div class="bill-meta">
         <div><div class="muted">Bill no.</div><b>${esc(o.billNo)}</b></div>
         <div style="text-align:right"><div class="muted">Date</div><b>${esc(fmtDate(o.createdAt))}</b></div>
-        ${o.customerName || o.customerPhone ? `<div style="flex-basis:100%"><span class="muted">Customer:</span> ${esc(o.customerName)} ${esc(o.customerPhone)}</div>` : ''}
+        ${o.fulfilment !== 'delivery' && (o.customerName || o.customerPhone) ? `<div style="flex-basis:100%"><span class="muted">Customer:</span> ${esc(o.customerName)} ${esc(o.customerPhone)}</div>` : ''}
       </div>
+      ${o.fulfilment === 'delivery' ? `<div class="deliver-box"><b>🚚 Home delivery</b>${esc(o.customerName)}${o.customerPhone ? ` · ${esc(o.customerPhone)}` : ''}<br>
+        ${esc(o.deliveryAddress)}${o.deliveryLandmark ? `<br><span class="muted">Landmark:</span> ${esc(o.deliveryLandmark)}` : ''}${o.deliveryPincode ? `<br><span class="muted">Pincode:</span> ${esc(o.deliveryPincode)}` : ''}</div>`
+        : (o.shop.delivery_enabled === '1' ? '<div class="deliver-box"><b>🏪 Pickup at store</b></div>' : '')}
       <table class="items">
         <thead><tr><th>Item</th><th class="r">Rate</th><th class="r">Qty</th><th class="r">Amount</th></tr></thead>
         <tbody>${o.lines.map((l) => `<tr><td>${esc(l.name)}</td><td class="r">${money(l.price)}</td><td class="r">${l.qty}</td><td class="r">${money(l.total)}</td></tr>`).join('')}</tbody>

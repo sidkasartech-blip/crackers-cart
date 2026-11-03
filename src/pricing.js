@@ -43,7 +43,7 @@ function describeDiscount(d, categoryName) {
  * @param {string} [p.coupon]
  * @param {Date} [p.now]
  */
-function computeBill({ cart, items, discounts, categoryNames = new Map(), taxPercent = 0, coupon = '', now = new Date() }) {
+function computeBill({ cart, items, discounts, categoryNames = new Map(), taxPercent = 0, coupon = '', now = new Date(), delivery = null }) {
   const errors = [];
   const lines = [];
   const merged = new Map();
@@ -116,7 +116,10 @@ function computeBill({ cart, items, discounts, categoryNames = new Map(), taxPer
   const discount = best ? best.amount : 0;
   const taxable = subtotal - discount;
   const tax = Math.round((taxable * (Number(taxPercent) || 0)) / 100);
-  const raw = taxable + tax;
+  // Home delivery: flat charge, free once the items total reaches freeAbove (if set).
+  const freeAbove = delivery && delivery.freeAbove > 0 ? delivery.freeAbove : 0;
+  const deliveryCharge = delivery ? (freeAbove && subtotal >= freeAbove ? 0 : Math.max(0, delivery.charge || 0)) : 0;
+  const raw = taxable + tax + deliveryCharge;
   const total = Math.round(raw / 100) * 100;
 
   return {
@@ -129,6 +132,9 @@ function computeBill({ cart, items, discounts, categoryNames = new Map(), taxPer
     couponStatus,
     taxPercent: Number(taxPercent) || 0,
     tax,
+    delivery: !!delivery,
+    deliveryCharge,
+    freeDeliveryAddMore: delivery && freeAbove && deliveryCharge > 0 ? freeAbove - subtotal : 0,
     roundOff: total - raw,
     total,
     nextOffer,

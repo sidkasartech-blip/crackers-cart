@@ -107,6 +107,10 @@ const DEFAULT_SETTINGS = {
   min_order: '0',
   shop_open: '1',
   closed_message: 'We are not taking orders right now. Please check back soon.',
+  delivery_enabled: '1',
+  delivery_charge: '0',        // ₹ added to the bill for home delivery
+  delivery_free_above: '0',    // ₹ order value for free delivery (0 = never free unless charge is 0)
+  delivery_note: '',           // shown at checkout, e.g. "We deliver within 5 km"
 };
 
 /** libsql rows -> plain objects */
@@ -172,6 +176,12 @@ async function openDb(url, authToken) {
  */
 const MIGRATIONS = [
   { table: 'items', column: 'store_stock', sql: 'ALTER TABLE items ADD COLUMN store_stock INTEGER NOT NULL DEFAULT 0' },
+  // Home delivery details on bills. Existing bills become "pickup" with no address.
+  { table: 'orders', column: 'fulfilment', sql: "ALTER TABLE orders ADD COLUMN fulfilment TEXT NOT NULL DEFAULT 'pickup'" },
+  { table: 'orders', column: 'delivery_address', sql: "ALTER TABLE orders ADD COLUMN delivery_address TEXT NOT NULL DEFAULT ''" },
+  { table: 'orders', column: 'delivery_landmark', sql: "ALTER TABLE orders ADD COLUMN delivery_landmark TEXT NOT NULL DEFAULT ''" },
+  { table: 'orders', column: 'delivery_pincode', sql: "ALTER TABLE orders ADD COLUMN delivery_pincode TEXT NOT NULL DEFAULT ''" },
+  { table: 'orders', column: 'delivery_charge', sql: 'ALTER TABLE orders ADD COLUMN delivery_charge INTEGER NOT NULL DEFAULT 0' },
 ];
 async function migrate(db) {
   const client = db.client;

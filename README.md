@@ -67,6 +67,10 @@ The Inventory tab shows Online, Store and **Total** for every item, plus overall
 - **Automatic snapshots** of all your data are saved in the database: before every app upgrade (kept forever), before any delete or bulk rate change, and once a day when the admin panel is opened (the last 60 are kept). Download any of them from Settings.
 - **Download full backup** saves everything (items, stock, photos, offers, bills, settings) as one file on your device. Take one before big changes, and keep a copy outside the app now and then.
 
+## Home delivery
+
+At checkout customers choose **Pickup at store** or **Home delivery**. For delivery they must give their name, a 10-digit mobile number and their address (landmark and pincode are optional). The phone remembers these for next time. Settings → **Home delivery** lets you switch it on or off, set a delivery charge, make delivery free above an order value, and show a note (e.g. "We deliver within 5 km"). Delivery bills show a 🚚 tag in **Bills**, with the address, a call link and an *Open in Maps* link. The CSV export includes the address.
+
 ## How discounts work
 
 - An offer is **% off** or **₹ off**, on the **whole cart** or **one category**, with an optional **minimum order**, **maximum discount**, and **start/end time** (so festival offers switch themselves on and off).
