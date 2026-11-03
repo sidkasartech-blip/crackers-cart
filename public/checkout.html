@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7c2d12">
+  <title>Checkout</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap">
+      <a class="btn btn-sm" href="/">← Shop</a>
+      <h1>Checkout</h1>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div id="empty" class="empty hidden">
+      <p>Your cart is empty.</p>
+      <a class="btn btn-primary" href="/">Browse crackers</a>
+    </div>
+
+    <div class="checkout hidden" id="checkout">
+      <section>
+        <div class="card" id="lines"></div>
+        <div id="closed" class="banner warn hidden"></div>
+      </section>
+
+      <aside class="summary card pad">
+        <label class="field">
+          <span>Have a coupon?</span>
+          <div class="coupon">
+            <input class="input" id="coupon" placeholder="Enter code" autocomplete="off" autocapitalize="characters">
+            <button class="btn" id="applyCoupon" type="button">Apply</button>
+          </div>
+          <div class="coupon-msg" id="couponMsg"></div>
+        </label>
+
+        <table class="totals" id="totals"></table>
+        <div class="nudge" id="nudge" style="margin:6px 0 12px"></div>
+
+        <div class="row">
+          <label class="field"><span>Your name (optional)</span><input class="input" id="custName" autocomplete="name" maxlength="80"></label>
+          <label class="field"><span>Phone (optional)</span><input class="input" id="custPhone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20"></label>
+        </div>
+
+        <div id="formErr" class="banner danger hidden"></div>
+        <button class="btn btn-primary btn-lg btn-block" id="placeBtn" type="button">Generate bill</button>
+        <p class="muted small" style="text-align:center;margin:10px 0 0">You'll get the bill with a UPI QR to pay.</p>
+      </aside>
+    </div>
+  </main>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/checkout.js"></script>
+</body>
+</html>

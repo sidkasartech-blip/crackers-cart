@@ -1,0 +1,96 @@
+(() => {
+  const params = new URLSearchParams(location.search);
+  const id = params.get('id');
+  const t = params.get('t') || '';
+  let order = null;
+  let pollTimer = null;
+
+  function fmtDate(sqlUtc) {
+    const d = new Date(sqlUtc.replace(' ', 'T') + 'Z');
+    return d.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  function payBlock(o) {
+    if (o.status === 'paid') return '<div class="pay"><span class="paid-stamp">PAID</span><p class="muted small">Thank you for your payment!</p></div>';
+    if (o.status === 'cancelled') return '<div class="pay"><span class="badge danger">This bill was cancelled</span></div>';
+    if (!o.upiQr) return `<div class="pay"><div class="muted small">Amount to pay</div><div class="amount num">${money(o.total)}</div><p class="muted small">Please pay at the counter.</p></div>`;
+    const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
+    return `<div class="pay">
+      <div class="muted small">Scan with any UPI app to pay</div>
+      <div class="amount num">${money(o.total)}</div>
+      <img class="qr" src="${o.upiQr}" alt="UPI payment QR code">
+      <div class="small muted">UPI ID: <b>${esc(o.shop.upi_id)}</b></div>
+      ${isMobile ? `<a class="btn btn-primary btn-lg no-print" style="margin-top:14px" href="${esc(o.upiUri)}">Pay ${money(o.total)} with UPI app</a>` : ''}
+      <p class="small muted no-print" style="margin-top:12px">After paying, show this screen at the counter. It turns to <b>PAID</b> once confirmed.</p>
+    </div>`;
+  }
+
+  function render(o) {
+    const s = o.shop;
+    const rows = [`<tr><td>Items total</td><td>${money(o.subtotal)}</td></tr>`];
+    if (o.discount) rows.push(`<tr class="disc"><td>${esc(o.discountLabel)}</td><td>−${money(o.discount)}</td></tr>`);
+    if (o.tax) rows.push(`<tr><td>Tax (${o.taxPercent}%)</td><td>${money(o.tax)}</td></tr>`);
+    if (o.roundOff) rows.push(`<tr><td class="muted">Round off</td><td class="muted">${o.roundOff > 0 ? '+' : '−'}${money(Math.abs(o.roundOff))}</td></tr>`);
+    rows.push(`<tr class="grand"><td>Total</td><td>${money(o.total)}</td></tr>`);
+
+    $('#bill').innerHTML = `
+      <div class="bill-head">
+        <h2>${esc(s.shop_name)}</h2>
+        ${s.address ? `<div class="small muted">${esc(s.address)}</div>` : ''}
+        ${s.phone ? `<div class="small muted">Ph: ${esc(s.phone)}</div>` : ''}
+        ${s.gstin ? `<div class="small muted">GSTIN: ${esc(s.gstin)}</div>` : ''}
+      </div>
+      <div class="bill-meta">
+        <div><div class="muted">Bill no.</div><b>${esc(o.billNo)}</b></div>
+        <div style="text-align:right"><div class="muted">Date</div><b>${esc(fmtDate(o.createdAt))}</b></div>
+        ${o.customerName || o.customerPhone ? `<div style="flex-basis:100%"><span class="muted">Customer:</span> ${esc(o.customerName)} ${esc(o.customerPhone)}</div>` : ''}
+      </div>
+      <table class="items">
+        <thead><tr><th>Item</th><th class="r">Rate</th><th class="r">Qty</th><th class="r">Amount</th></tr></thead>
+        <tbody>${o.lines.map((l) => `<tr><td>${esc(l.name)}</td><td class="r">${money(l.price)}</td><td class="r">${l.qty}</td><td class="r">${money(l.total)}</td></tr>`).join('')}</tbody>
+      </table>
+      <div class="totals-wrap"><table class="totals">${rows.join('')}</table></div>
+      ${payBlock(o)}
+      ${s.bill_footer ? `<div class="bill-foot">${esc(s.bill_footer)}</div>` : ''}`;
+
+    const actions = [`<button class="btn" id="printBtn">Print / Save PDF</button>`];
+    if (navigator.share) actions.unshift('<button class="btn" id="shareBtn">Share bill</button>');
+    actions.push('<a class="btn btn-ghost" href="/">Shop again</a>');
+    $('#actions').innerHTML = actions.join('');
+    $('#printBtn').onclick = () => window.print();
+    const sb = $('#shareBtn');
+    if (sb) sb.onclick = () => navigator.share({ title: `${s.shop_name} bill ${o.billNo}`, text: `Bill ${o.billNo}: ${money(o.total)}`, url: location.href }).catch(() => {});
+    document.title = `Bill ${o.billNo}`;
+  }
+
+  async function load() {
+    if (!id) { $('#bill').innerHTML = '<div class="empty">No bill selected.</div>'; return; }
+    try {
+      order = await api(`/api/orders/${encodeURIComponent(id)}?t=${encodeURIComponent(t)}`);
+    } catch (e) {
+      $('#bill').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+      return;
+    }
+    safeSet('cc_last_bill', { id, t, billNo: order.billNo });
+    render(order);
+    if (order.status === 'pending') startPolling();
+  }
+
+  function startPolling() {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const { status } = await api(`/api/orders/${encodeURIComponent(id)}/status?t=${encodeURIComponent(t)}`);
+        if (status !== order.status) {
+          order.status = status;
+          render(order);
+          if (status !== 'pending') clearInterval(pollTimer);
+          if (status === 'paid' && navigator.vibrate) navigator.vibrate([30, 60, 30]);
+        }
+      } catch { /* keep trying */ }
+    }, 5000);
+  }
+
+  load();
+})();

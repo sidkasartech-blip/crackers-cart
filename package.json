@@ -1,0 +1,19 @@
+{
+  "name": "crackers-cart",
+  "version": "1.0.0",
+  "description": "Scan-and-shop cart for a crackers stall: catalog, checkout with discounts, bill with UPI QR, and an admin panel for inventory, rates and offers.",
+  "main": "server.js",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "qrcode": "^1.5.4"
+  }
+}

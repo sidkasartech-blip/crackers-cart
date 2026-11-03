@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7c2d12">
+  <meta name="robots" content="noindex">
+  <title>Shop Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap">
+      <h1>Shop Admin</h1>
+      <span class="spacer"></span>
+      <a class="btn btn-sm" href="/" target="_blank" rel="noopener">View shop</a>
+      <button class="btn btn-sm hidden" id="logoutBtn">Log out</button>
+    </div>
+  </header>
+
+  <!-- Login -->
+  <main class="wrap hidden" id="loginView">
+    <form class="card pad login" id="loginForm">
+      <h2 style="margin-bottom:12px">Admin login</h2>
+      <label class="field"><span>Password</span><input class="input" type="password" id="loginPw" autocomplete="current-password" required autofocus></label>
+      <div class="banner danger hidden" id="loginErr"></div>
+      <button class="btn btn-primary btn-block">Log in</button>
+    </form>
+  </main>
+
+  <!-- App -->
+  <div class="hidden" id="appView">
+    <div class="wrap">
+      <nav class="admin-nav" role="tablist">
+        <button data-tab="dashboard" aria-selected="true">Dashboard</button>
+        <button data-tab="items">Inventory</button>
+        <button data-tab="orders">Bills</button>
+        <button data-tab="discounts">Offers</button>
+        <button data-tab="categories">Categories</button>
+        <button data-tab="settings">Settings</button>
+        <button data-tab="qr">Store QR</button>
+      </nav>
+      <div id="pwWarn" class="banner warn hidden">You're using the default password. Change it in <a href="#" data-goto="settings">Settings</a>.</div>
+      <div id="upiWarn" class="banner warn hidden">No UPI ID set yet — bills won't show a payment QR. Add it in <a href="#" data-goto="settings">Settings</a>.</div>
+
+      <!-- Dashboard -->
+      <section class="section" data-panel="dashboard">
+        <div class="stats" id="stats"></div>
+        <div class="row" style="align-items:start">
+          <div class="card">
+            <div class="pad"><h3>Low stock</h3></div>
+            <div class="table-wrap"><table class="data" id="lowStock"></table></div>
+          </div>
+          <div class="card">
+            <div class="pad"><h3>Best sellers</h3></div>
+            <div class="table-wrap"><table class="data" id="topItems"></table></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Inventory -->
+      <section class="section hidden" data-panel="items">
+        <div class="section-head">
+          <h2>Inventory</h2>
+          <button class="btn" id="bulkPriceBtn">Change rates</button>
+          <button class="btn btn-primary" id="addItemBtn">+ Add item</button>
+        </div>
+        <div class="row" style="margin-bottom:12px">
+          <input class="input" id="itemSearch" type="search" placeholder="Search items…">
+          <select class="input" id="itemCatFilter"></select>
+        </div>
+        <div class="card table-wrap inv-table">
+          <table class="data">
+            <thead><tr><th></th><th>Item</th><th>Category</th><th class="r">Rate (₹)</th><th class="r">Stock</th><th>Add stock</th><th>Visible</th><th></th></tr></thead>
+            <tbody id="itemRows"></tbody>
+          </table>
+        </div>
+        <div class="inv-cards" id="itemCards"></div>
+      </section>
+
+      <!-- Orders -->
+      <section class="section hidden" data-panel="orders">
+        <div class="section-head">
+          <h2>Bills</h2>
+          <a class="btn" href="/api/admin/orders.csv">Export CSV</a>
+        </div>
+        <div class="row" style="margin-bottom:12px">
+          <input class="input" id="orderSearch" type="search" placeholder="Bill no, name or phone">
+          <select class="input" id="orderStatus">
+            <option value="">All statuses</option>
+            <option value="pending" selected>Pending payment</option>
+            <option value="paid">Paid</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <input class="input" id="orderDate" type="date">
+        </div>
+        <div class="card table-wrap">
+          <table class="data">
+            <thead><tr><th>Bill</th><th>Time</th><th>Customer</th><th class="r">Total</th><th>Status</th><th></th></tr></thead>
+            <tbody id="orderRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Discounts -->
+      <section class="section hidden" data-panel="discounts">
+        <div class="section-head">
+          <h2>Offers &amp; coupons</h2>
+          <button class="btn btn-primary" id="addDiscBtn">+ Add offer</button>
+        </div>
+        <p class="muted small">Offers without a code apply automatically. Only the single best offer is applied to a bill.</p>
+        <div class="card table-wrap">
+          <table class="data">
+            <thead><tr><th>Offer</th><th>Discount</th><th>Applies to</th><th>Min order</th><th>When</th><th>On</th><th></th></tr></thead>
+            <tbody id="discRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Categories -->
+      <section class="section hidden" data-panel="categories">
+        <div class="section-head"><h2>Categories</h2></div>
+        <form class="row card pad" id="catForm" style="margin-bottom:12px;align-items:end">
+          <label class="field" style="margin:0"><span>New category</span><input class="input" id="catName" placeholder="e.g. Sparklers" required></label>
+          <label class="field" style="margin:0;flex:0 0 100px"><span>Order</span><input class="input" id="catOrder" type="number" value="0"></label>
+          <button class="btn btn-primary" style="flex:0 0 auto">Add</button>
+        </form>
+        <div class="card table-wrap">
+          <table class="data">
+            <thead><tr><th>Name</th><th>Order</th><th class="r">Items</th><th></th></tr></thead>
+            <tbody id="catRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section class="section hidden" data-panel="settings">
+        <div class="section-head"><h2>Settings</h2></div>
+        <form class="card pad" id="settingsForm">
+          <h3 style="margin-bottom:12px">Shop</h3>
+          <div class="row">
+            <label class="field"><span>Shop name</span><input class="input" name="shop_name" required></label>
+            <label class="field"><span>Tagline</span><input class="input" name="tagline"></label>
+          </div>
+          <div class="row">
+            <label class="field"><span>Phone</span><input class="input" name="phone"></label>
+            <label class="field"><span>GSTIN (optional)</span><input class="input" name="gstin"></label>
+          </div>
+          <label class="field"><span>Address</span><input class="input" name="address"></label>
+          <label class="check"><input type="checkbox" name="shop_open"> Taking orders (untick to pause the shop)</label>
+          <label class="field"><span>Message when paused</span><input class="input" name="closed_message"></label>
+
+          <h3 style="margin:18px 0 12px">Payment (UPI)</h3>
+          <div class="row">
+            <label class="field"><span>UPI ID (VPA)</span><input class="input" name="upi_id" placeholder="yourname@okaxis"></label>
+            <label class="field"><span>Payee name</span><input class="input" name="upi_name" placeholder="As registered with your bank"></label>
+          </div>
+
+          <h3 style="margin:18px 0 12px">Billing</h3>
+          <div class="row">
+            <label class="field"><span>Tax % (0 for none)</span><input class="input" name="tax_percent" type="number" min="0" max="100" step="0.01"></label>
+            <label class="field"><span>Minimum order (₹)</span><input class="input" name="min_order" type="number" min="0" step="1"></label>
+            <label class="field"><span>Bill number prefix</span><input class="input" name="bill_prefix"></label>
+          </div>
+          <label class="field"><span>Bill footer note</span><textarea class="input" name="bill_footer"></textarea></label>
+          <label class="field"><span>Public shop URL (for the store QR; leave blank to use this address)</span><input class="input" name="site_url" type="url" placeholder="https://myshop.example.com"></label>
+          <button class="btn btn-primary">Save settings</button>
+        </form>
+
+        <form class="card pad" id="pwForm" style="margin-top:16px">
+          <h3 style="margin-bottom:12px">Change admin password</h3>
+          <div class="row">
+            <label class="field"><span>Current password</span><input class="input" type="password" name="current" autocomplete="current-password" required></label>
+            <label class="field"><span>New password</span><input class="input" type="password" name="next" autocomplete="new-password" minlength="6" required></label>
+          </div>
+          <button class="btn">Update password</button>
+        </form>
+      </section>
+
+      <!-- Store QR -->
+      <section class="section hidden" data-panel="qr">
+        <div class="card qr-poster" id="qrPoster">
+          <h2 id="qrShop"></h2>
+          <p class="muted">Scan to browse &amp; order crackers</p>
+          <img id="qrImg" alt="Shop QR code">
+          <div class="small muted" id="qrUrl"></div>
+        </div>
+        <div class="bill-actions no-print">
+          <button class="btn btn-primary" onclick="window.print()">Print poster</button>
+          <a class="btn" id="qrDownload" download="shop-qr.png">Download QR</a>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Item dialog -->
+  <dialog id="itemDlg">
+    <form id="itemForm" method="dialog">
+      <div class="dlg-head"><h3 id="itemDlgTitle">Add item</h3><button class="btn btn-ghost btn-sm" value="cancel" formnovalidate>✕</button></div>
+      <div class="img-pick">
+        <div class="thumb" id="imgPreview"><div class="ph">📷</div></div>
+        <div class="btns">
+          <label class="btn btn-sm">📷 Take photo<input type="file" accept="image/*" capture="environment" id="imgCamera"></label>
+          <label class="btn btn-sm">🖼️ From gallery<input type="file" accept="image/*" id="imgFile"></label>
+          <input class="input" id="imgUrl" type="url" placeholder="…or paste an image link">
+          <button type="button" class="btn btn-sm btn-ghost btn-danger hidden" id="imgClear">Remove photo</button>
+        </div>
+      </div>
+      <label class="field"><span>Name</span><input class="input" name="name" required maxlength="100"></label>
+      <label class="field"><span>Short description (optional)</span><input class="input" name="description" maxlength="300" placeholder="e.g. 10 pcs, green & red"></label>
+      <div class="row">
+        <label class="field"><span>Category</span><select class="input" name="categoryId"></select></label>
+        <label class="field"><span>Sold per</span><input class="input" name="unit" placeholder="box, pack, piece" value="box"></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>Rate (₹)</span><input class="input" name="price" type="number" min="0" step="0.01" required inputmode="decimal"></label>
+        <label class="field"><span>MRP (₹, optional)</span><input class="input" name="mrp" type="number" min="0" step="0.01" inputmode="decimal"></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>Stock</span><input class="input" name="stock" type="number" min="0" step="1" value="0" required inputmode="numeric"></label>
+        <label class="field"><span>Low-stock alert at</span><input class="input" name="lowStock" type="number" min="0" step="1" value="5" inputmode="numeric"></label>
+        <label class="field"><span>Display order</span><input class="input" name="sortOrder" type="number" step="1" value="0"></label>
+      </div>
+      <label class="check"><input type="checkbox" name="active" checked> Show in shop</label>
+      <div class="banner danger hidden" id="itemErr"></div>
+      <div class="dlg-foot">
+        <button type="button" class="btn btn-ghost btn-danger hidden" id="itemDelete">Delete</button>
+        <span style="flex:1"></span>
+        <button class="btn" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn btn-primary" value="save" id="itemSave">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Discount dialog -->
+  <dialog id="discDlg">
+    <form id="discForm" method="dialog">
+      <div class="dlg-head"><h3 id="discDlgTitle">Add offer</h3><button class="btn btn-ghost btn-sm" value="cancel" formnovalidate>✕</button></div>
+      <label class="field"><span>Offer name (shown on the bill)</span><input class="input" name="name" required placeholder="Diwali offer"></label>
+      <div class="row">
+        <label class="field"><span>Type</span><select class="input" name="type"><option value="percent">% off</option><option value="flat">₹ off</option></select></label>
+        <label class="field"><span id="discValueLabel">Percent</span><input class="input" name="value" type="number" min="0" step="any" required></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>Applies to</span><select class="input" name="categoryId"></select></label>
+        <label class="field"><span>Coupon code (blank = automatic)</span><input class="input" name="code" style="text-transform:uppercase" maxlength="30"></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>Minimum order (₹)</span><input class="input" name="minOrder" type="number" min="0" step="1" value="0"></label>
+        <label class="field"><span>Max discount (₹, optional)</span><input class="input" name="maxDiscount" type="number" min="0" step="1"></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>Starts (optional)</span><input class="input" name="startsAt" type="datetime-local"></label>
+        <label class="field"><span>Ends (optional)</span><input class="input" name="endsAt" type="datetime-local"></label>
+      </div>
+      <label class="check"><input type="checkbox" name="active" checked> Active</label>
+      <div class="banner danger hidden" id="discErr"></div>
+      <div class="dlg-foot">
+        <span style="flex:1"></span>
+        <button class="btn" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn btn-primary" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Bulk price dialog -->
+  <dialog id="bulkDlg">
+    <form id="bulkForm" method="dialog">
+      <div class="dlg-head"><h3>Change rates in bulk</h3><button class="btn btn-ghost btn-sm" value="cancel" formnovalidate>✕</button></div>
+      <p class="muted small">Raise or lower rates by a percentage. Use a negative number to reduce, e.g. −10.</p>
+      <div class="row">
+        <label class="field"><span>Change by %</span><input class="input" name="percent" type="number" step="any" required></label>
+        <label class="field"><span>Category</span><select class="input" name="categoryId"></select></label>
+        <label class="field"><span>Round to nearest ₹</span><select class="input" name="roundTo"><option>1</option><option>5</option><option>10</option></select></label>
+      </div>
+      <div class="dlg-foot">
+        <span style="flex:1"></span>
+        <button class="btn" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn btn-primary" value="save">Apply</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Order detail dialog -->
+  <dialog id="orderDlg">
+    <form method="dialog">
+      <div class="dlg-head"><h3 id="orderDlgTitle">Bill</h3><button class="btn btn-ghost btn-sm" value="cancel">✕</button></div>
+      <div id="orderDlgBody"></div>
+      <div class="dlg-foot" id="orderDlgFoot"></div>
+    </form>
+  </dialog>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>
