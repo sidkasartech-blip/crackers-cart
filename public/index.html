@@ -30,17 +30,18 @@
     <section class="hero">
       <h2>Light up your celebration 🎆</h2>
       <p>Pick your crackers, pay by UPI, and you're done.</p>
-      <div class="search">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input class="input" id="q" type="search" placeholder="Search sparklers, rockets…" autocomplete="off" aria-label="Search">
-      </div>
     </section>
 
     <div id="closed" class="banner warn hidden"></div>
     <a id="lastBill" class="banner ok hidden"></a>
     <div class="offers" id="offers"></div>
 
-    <div class="toolbar">
+    <div class="toolbar" id="toolbar">
+      <form class="search" id="searchForm" role="search" onsubmit="return false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input class="input" id="q" type="search" enterkeyhint="search" placeholder="Search sparklers, rockets…" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Search">
+        <button type="button" class="search-clear hidden" id="qClear" aria-label="Clear search">✕</button>
+      </form>
       <div class="chips" id="chips" role="toolbar" aria-label="Categories"></div>
     </div>
     <div class="grid" id="grid"></div>

@@ -56,6 +56,9 @@ body {
 }
 img { max-width: 100%; display: block; }
 button, input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
+/* Phones: quick repeated taps on +/- must not double-tap-zoom, and focusing a box must not zoom (iOS zooms below 16px). */
+a, button, input, select, textarea, label, .stepper, .chip, [data-open] { touch-action: manipulation; }
+input, select, textarea { font-size: max(16px, 1em); }
 a { color: var(--brand); }
 h1, h2, h3 { line-height: 1.2; margin: 0; letter-spacing: -.02em; }
 .muted { color: var(--muted); }
@@ -164,13 +167,20 @@ textarea.input { min-height: 84px; resize: vertical; }
 .hero::before { width: 220px; height: 220px; right: -60px; top: -90px; }
 .hero::after { width: 140px; height: 140px; right: 70px; bottom: -80px; background: rgba(255,255,255,.08); }
 .hero h2 { position: relative; font-size: 1.45rem; font-weight: 800; }
-.hero p { position: relative; margin: 4px 0 16px; opacity: .92; font-size: .92rem; }
+.hero p { position: relative; margin: 4px 0 0; opacity: .92; font-size: .92rem; }
 .search { position: relative; }
+.search { margin-bottom: 8px; }
 .search input {
-  padding-left: 44px; border-radius: 14px; border: 0; min-height: 50px;
-  background: var(--surface); box-shadow: 0 6px 20px rgba(0,0,0,.12);
+  padding-left: 44px; padding-right: 44px; border-radius: 14px; min-height: 48px;
+  background: var(--surface); color: var(--text); -webkit-text-fill-color: var(--text); caret-color: var(--brand);
+  border: 1px solid var(--line); box-shadow: var(--shadow-sm); -webkit-appearance: none; appearance: none;
 }
-.search input:focus { box-shadow: 0 0 0 4px rgba(255,255,255,.35), 0 6px 20px rgba(0,0,0,.12); }
+.search input::placeholder { color: var(--muted); -webkit-text-fill-color: var(--muted); opacity: 1; }
+.search input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+.search-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border: 0; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted); font-size: .85rem; cursor: pointer;
+}
 .search svg { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); width: 19px; height: 19px; color: var(--muted); z-index: 1; }
 
 .offers { display: flex; gap: 10px; overflow-x: auto; padding: 10px 0 2px; scrollbar-width: none; scroll-snap-type: x mandatory; }
@@ -183,7 +193,9 @@ textarea.input { min-height: 84px; resize: vertical; }
 .offer .ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--brand-soft); font-size: 1rem; }
 .offer small { display: block; font-weight: 500; color: var(--muted); font-size: .75rem; }
 
-.toolbar { position: sticky; top: var(--topbar-h, 61px); z-index: 10; background: var(--bg); padding: 8px 0 6px; margin: 0 -16px; padding-inline: 16px; }
+.toolbar { position: sticky; top: var(--topbar-h, 61px); z-index: 10; background: var(--bg); padding: 10px 16px 8px; margin: 0 -16px; }
+/* Keep the page at least a screen tall so filtering results doesn't make it jump around under the keyboard. */
+.grid { min-height: calc(100dvh - var(--topbar-h, 61px) - 120px); align-content: start; }
 .chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
 .chips::-webkit-scrollbar { display: none; }
 .chip {

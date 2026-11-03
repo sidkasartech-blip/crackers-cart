@@ -153,10 +153,14 @@ test('offline store stock: quick changes, moves, totals, and safe edits', async 
   r = await call('PATCH', `/api/admin/items/${item.id}`, { moveToStore: -2 });
   assert.deepEqual([r.data.stock, r.data.storeStock], [7, 4]);
 
-  // Customers never see store stock.
-  const pub = (await call('GET', '/api/catalog')).data.items.find((i) => i.id === item.id);
-  assert.equal(pub.stock, 7);
+  // Customers see one "available" number (online + store by default), never the split, and never the MRP/cost field.
+  let pub = (await call('GET', '/api/catalog')).data.items.find((i) => i.id === item.id);
+  assert.equal(pub.stock, 11);
   assert.equal(pub.storeStock, undefined);
+  assert.equal(pub.mrp, undefined);
+  await call('PUT', '/api/admin/settings', { online_sells_store_stock: false });
+  pub = (await call('GET', '/api/catalog')).data.items.find((i) => i.id === item.id);
+  assert.equal(pub.stock, 7); // the rest of this test checks online-only behaviour
 
   // Admin opens the form (online 7), a customer buys 2 meanwhile, admin adds 1 to store and saves.
   const order = await call('POST', '/api/orders', { items: [{ itemId: item.id, qty: 2 }] });
@@ -333,4 +337,34 @@ test('home delivery: settings, validation, charge, bill and export', async (t) =
   await call('PUT', '/api/admin/settings', { delivery_enabled: false });
   const off = await call('POST', '/api/orders', { items, fulfilment: 'delivery', customerName: 'Asha', customerPhone: '9876543210', deliveryAddress: 'Flat 4, Rose Apts, MG Road, Pune' });
   assert.equal(off.status, 400);
+});
+
+test('online orders use online stock first, then store stock; cancelling puts each back', async (t) => {
+  const { call, close } = await setup();
+  t.after(close);
+  await call('POST', '/api/admin/login', { password: 'admin123' });
+  const item = (await call('POST', '/api/admin/items', { name: 'Shared Rocket', price: '100', stock: 2, storeStock: 5 })).data;
+  const get = async () => (await call('GET', '/api/admin/items')).data.find((i) => i.id === item.id);
+
+  // Customers can buy 7 (2 online + 5 store), not 8.
+  assert.equal((await call('POST', '/api/quote', { items: [{ itemId: item.id, qty: 8 }] })).data.errors.length, 1);
+  const o = await call('POST', '/api/orders', { items: [{ itemId: item.id, qty: 3 }] });
+  assert.equal(o.status, 201);
+  let it = await get();
+  assert.deepEqual([it.stock, it.storeStock], [0, 4]); // 2 from online, 1 from store
+
+  await call('PATCH', `/api/admin/orders/${o.data.id}`, { status: 'cancelled' });
+  it = await get();
+  assert.deepEqual([it.stock, it.storeStock], [2, 5]); // back exactly where they came from
+  await call('PATCH', `/api/admin/orders/${o.data.id}`, { status: 'pending' });
+  it = await get();
+  assert.deepEqual([it.stock, it.storeStock], [0, 4]);
+
+  // With the setting off, only online stock is sold.
+  await call('PUT', '/api/admin/settings', { online_sells_store_stock: false });
+  await call('PATCH', `/api/admin/items/${item.id}`, { addStock: 1 });
+  assert.equal((await call('POST', '/api/orders', { items: [{ itemId: item.id, qty: 2 }] })).status, 400);
+  assert.equal((await call('POST', '/api/orders', { items: [{ itemId: item.id, qty: 1 }] })).status, 201);
+  it = await get();
+  assert.deepEqual([it.stock, it.storeStock], [0, 4]);
 });

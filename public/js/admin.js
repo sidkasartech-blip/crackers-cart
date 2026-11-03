@@ -184,7 +184,7 @@
     const t = state.items.reduce((a, i) => ({ online: a.online + i.stock, store: a.store + i.storeStock, value: a.value + i.totalStock * i.price }), { online: 0, store: 0, value: 0 });
     const stat = (cls, icon, label, value, sub = '') => `<div class="card stat ${cls}"><div class="ic">${icon}</div><div class="label">${label}</div><div class="value num">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
     $('#invStats').innerHTML = [
-      stat('s1', '🌐', 'Online stock', t.online, 'what customers can buy'),
+      stat('s1', '🌐', 'Online stock', t.online, 'sold online first'),
       stat('s2', '🏪', 'Store stock', t.store, 'at the offline shop'),
       stat('s3', '📦', 'Total stock', t.online + t.store, `${state.items.length} items`),
       stat('s4', '💰', 'Total value', money(t.value), 'at current rates'),

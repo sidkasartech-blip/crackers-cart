@@ -77,7 +77,7 @@
           <button class="btn btn-primary" id="addItemBtn">+ Add item</button>
         </div>
         <div class="stats" id="invStats" style="margin-bottom:12px"></div>
-        <p class="muted small" style="margin:-4px 0 12px"><b>Online</b> is what customers can buy on the website (online bills reduce it). <b>Store</b> is stock at your offline shop. Type a negative number to reduce, e.g. −5 for 5 sold at the store.</p>
+        <p class="muted small" style="margin:-4px 0 12px"><b>Online</b> and <b>Store</b> are your two stock counts. Online bills take from Online first, then from Store (you can switch that off in Settings → Stock). Type a negative number to reduce, e.g. −5 for 5 sold at the counter.</p>
         <div class="row" style="margin-bottom:12px">
           <input class="input" id="itemSearch" type="search" placeholder="Search items…">
           <select class="input" id="itemCatFilter"></select>
@@ -168,6 +168,10 @@
             <label class="field"><span>UPI ID (VPA)</span><input class="input" name="upi_id" placeholder="yourname@okaxis"></label>
             <label class="field"><span>Payee name</span><input class="input" name="upi_name" placeholder="As registered with your bank"></label>
           </div>
+
+          <h3 style="margin:18px 0 12px">Stock</h3>
+          <label class="check"><input type="checkbox" name="online_sells_store_stock"> Online shop can also sell offline-store stock</label>
+          <p class="muted small" style="margin:0 0 6px">When on, customers see Online + Store as available. Online bills use Online stock first, then Store stock; cancelling a bill puts each back where it came from.</p>
 
           <h3 style="margin:18px 0 12px">Home delivery</h3>
           <label class="check"><input type="checkbox" name="delivery_enabled"> Offer home delivery at checkout</label>

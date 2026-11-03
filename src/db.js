@@ -111,6 +111,7 @@ const DEFAULT_SETTINGS = {
   delivery_charge: '0',        // ₹ added to the bill for home delivery
   delivery_free_above: '0',    // ₹ order value for free delivery (0 = never free unless charge is 0)
   delivery_note: '',           // shown at checkout, e.g. "We deliver within 5 km"
+  online_sells_store_stock: '1', // online orders may use offline-store stock once online stock runs out
 };
 
 /** libsql rows -> plain objects */
@@ -182,6 +183,9 @@ const MIGRATIONS = [
   { table: 'orders', column: 'delivery_landmark', sql: "ALTER TABLE orders ADD COLUMN delivery_landmark TEXT NOT NULL DEFAULT ''" },
   { table: 'orders', column: 'delivery_pincode', sql: "ALTER TABLE orders ADD COLUMN delivery_pincode TEXT NOT NULL DEFAULT ''" },
   { table: 'orders', column: 'delivery_charge', sql: 'ALTER TABLE orders ADD COLUMN delivery_charge INTEGER NOT NULL DEFAULT 0' },
+  // Which stock each sold line came from, so cancelling puts it back in the right place. 0/0 = older bill (all online).
+  { table: 'order_items', column: 'from_online', sql: 'ALTER TABLE order_items ADD COLUMN from_online INTEGER NOT NULL DEFAULT 0' },
+  { table: 'order_items', column: 'from_store', sql: 'ALTER TABLE order_items ADD COLUMN from_store INTEGER NOT NULL DEFAULT 0' },
 ];
 async function migrate(db) {
   const client = db.client;

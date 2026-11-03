@@ -245,7 +245,31 @@
     $$('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c === chip)));
     render();
   });
-  $('#q').addEventListener('input', (e) => { query = e.target.value.trim(); render(); });
+  // Search: pin the search bar under the header while typing, so results show right below it (above the keyboard).
+  const pinSearch = () => {
+    const bar = $('#toolbar');
+    const stickTop = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')) || 61;
+    const y = bar.getBoundingClientRect().top + window.scrollY - stickTop;
+    if (window.scrollY < y - 2) window.scrollTo(0, y);
+  };
+  $('#q').addEventListener('focus', () => setTimeout(pinSearch, 50));
+  $('#q').addEventListener('input', (e) => {
+    query = e.target.value.trim();
+    $('#qClear').classList.toggle('hidden', !e.target.value);
+    if (query && activeCat !== 'all') { // search across every category
+      activeCat = 'all';
+      $$('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.cat === 'all')));
+    }
+    render();
+    pinSearch();
+  });
+  $('#q').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); }); // "Search" key closes the keyboard
+  $('#qClear').addEventListener('click', () => {
+    $('#q').value = ''; query = '';
+    $('#qClear').classList.add('hidden');
+    render();
+    $('#q').focus();
+  });
 
   // Coming back from checkout via the back button should show the latest cart.
   window.addEventListener('pageshow', (e) => { if (e.persisted) load(); });

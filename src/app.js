@@ -13,7 +13,7 @@ const PUBLIC_SETTING_KEYS = [
   'min_order', 'shop_open', 'closed_message',
   'delivery_enabled', 'delivery_charge', 'delivery_free_above', 'delivery_note',
 ];
-const EDITABLE_SETTING_KEYS = [...PUBLIC_SETTING_KEYS, 'upi_id', 'upi_name', 'bill_prefix', 'site_url'];
+const EDITABLE_SETTING_KEYS = [...PUBLIC_SETTING_KEYS, 'online_sells_store_stock', 'upi_id', 'upi_name', 'bill_prefix', 'site_url'];
 
 // Servers (e.g. Vercel) run in UTC; "today" on the dashboard should follow the shop's clock. Default: India (+5:30).
 const TZ_OFFSET_MIN = Number.isFinite(Number(process.env.SHOP_TZ_OFFSET_MINUTES)) && process.env.SHOP_TZ_OFFSET_MINUTES !== ''
@@ -103,8 +103,15 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
   };
 
   const wantsDelivery = (body, settings) => body.fulfilment === 'delivery' && settings.delivery_enabled === '1';
+  // What the online shop can sell: online stock, plus offline-store stock when that setting is on.
+  const sharesStore = (settings) => settings.online_sells_store_stock === '1';
+  const sellable = (row, settings) => row.stock + (sharesStore(settings) ? (row.store_stock || 0) : 0);
   const quote = async (body, settings, q = db) => computeBill({
-    ...(await loadPricingContext(q)),
+    ...(await (async () => {
+      const ctx = await loadPricingContext(q);
+      ctx.items = new Map([...ctx.items].map(([id, r]) => [id, { ...r, stock: sellable(r, settings) }]));
+      return ctx;
+    })()),
     cart: body.items,
     coupon: body.coupon,
     taxPercent: Number(settings.tax_percent) || 0,
@@ -150,7 +157,8 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
     res.json({
       settings: pub,
       categories,
-      items: items.map(itemOut).map(({ lowStock, active, sortOrder, updatedAt, storeStock, totalStock, ...rest }) => rest),
+      items: items.map((r) => ({ ...r, stock: sellable(r, settings) })).map(itemOut)
+        .map(({ lowStock, active, sortOrder, updatedAt, storeStock, totalStock, mrp, ...rest }) => rest),
       offers,
     });
   });
@@ -199,10 +207,16 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
       await t.run('UPDATE orders SET bill_no = ? WHERE id = ?', [billNo, id]);
 
       for (const l of bill.lines) {
-        await t.run('INSERT INTO order_items (order_id, item_id, name, unit, price, qty, total) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [id, l.itemId, l.name, l.unit, l.price, l.qty, l.total]);
-        const taken = await t.run('UPDATE items SET stock = stock - ? WHERE id = ? AND stock >= ?', [l.qty, l.itemId, l.qty]);
+        // Take from online stock first, then (if allowed) from the offline store.
+        const row = await t.get('SELECT stock, store_stock FROM items WHERE id = ?', [l.itemId]);
+        const fromOnline = Math.min(l.qty, Math.max(0, row.stock));
+        const fromStore = l.qty - fromOnline;
+        if (fromStore > 0 && (!sharesStore(settings) || fromStore > row.store_stock)) throw bad(`${l.name} just went out of stock`);
+        const taken = await t.run('UPDATE items SET stock = stock - ?, store_stock = store_stock - ? WHERE id = ? AND stock >= ? AND store_stock >= ?',
+          [fromOnline, fromStore, l.itemId, fromOnline, fromStore]);
         if (taken.changes !== 1) throw bad(`${l.name} just went out of stock`);
+        await t.run('INSERT INTO order_items (order_id, item_id, name, unit, price, qty, total, from_online, from_store) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [id, l.itemId, l.name, l.unit, l.price, l.qty, l.total, fromOnline, fromStore]);
       }
       return { id, token };
     });
@@ -278,7 +292,7 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
       db.get(`SELECT COALESCE(SUM(total),0) AS v FROM orders WHERE status = 'paid' AND ${today}`),
       db.get(`SELECT COUNT(*) AS n, COALESCE(SUM(total),0) AS v FROM orders WHERE status = 'pending'`),
       db.get(`SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS sales FROM orders WHERE status = 'paid'`),
-      db.all('SELECT * FROM items WHERE active = 1 AND stock <= low_stock ORDER BY stock, name'),
+      db.all(`SELECT * FROM items WHERE active = 1 AND stock + ${(await getSettings(db)).online_sells_store_stock === '1' ? 'store_stock' : 0} <= low_stock ORDER BY stock, name`),
       db.all(`SELECT oi.name, SUM(oi.qty) AS qty, SUM(oi.total) AS amount
         FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE o.status != 'cancelled'
         GROUP BY oi.name ORDER BY qty DESC LIMIT 5`),
@@ -516,11 +530,17 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
       const order = await t.get('SELECT * FROM orders WHERE id = ?', [id]);
       if (!order) throw new HttpError(404, 'Order not found');
       if (order.status === status) return;
-      const lines = await t.all('SELECT item_id, qty FROM order_items WHERE order_id = ?', [id]);
-      const adjust = (delta, itemId) => t.run('UPDATE items SET stock = MAX(0, stock + ?) WHERE id = ?', [delta, itemId]);
+      const lines = await t.all('SELECT item_id, qty, from_online, from_store FROM order_items WHERE order_id = ?', [id]);
+      // Put stock back where it came from (older bills without that record count as online).
+      const adjust = (sign, l) => {
+        const tracked = l.from_online + l.from_store === l.qty;
+        const online = tracked ? l.from_online : l.qty;
+        const store = tracked ? l.from_store : 0;
+        return t.run('UPDATE items SET stock = MAX(0, stock + ?), store_stock = MAX(0, store_stock + ?) WHERE id = ?', [sign * online, sign * store, l.item_id]);
+      };
       // Cancelling returns stock to the shelf; un-cancelling takes it back.
-      if (status === 'cancelled') for (const l of lines) await adjust(l.qty, l.item_id);
-      if (order.status === 'cancelled') for (const l of lines) await adjust(-l.qty, l.item_id);
+      if (status === 'cancelled') for (const l of lines) await adjust(1, l);
+      if (order.status === 'cancelled') for (const l of lines) await adjust(-1, l);
       await t.run("UPDATE orders SET status = ?, paid_at = CASE WHEN ? = 'paid' THEN datetime('now') ELSE NULL END WHERE id = ?", [status, status, id]);
     });
     res.json({ ok: true });
@@ -594,7 +614,7 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
     if (b.upi_id && !/^[\w.\-]{2,}@[a-zA-Z][\w.\-]*$/.test(String(b.upi_id).trim())) throw bad('UPI ID looks wrong (expected something like name@bank)');
     const stmts = EDITABLE_SETTING_KEYS.filter((k) => b[k] !== undefined).map((k) => ({
       sql: 'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-      args: [k, k === 'shop_open' || k === 'delivery_enabled' ? String(bool(b[k])) : str(b[k], 1000)],
+      args: [k, ['shop_open', 'delivery_enabled', 'online_sells_store_stock'].includes(k) ? String(bool(b[k])) : str(b[k], 1000)],
     }));
     if (stmts.length) await db.client.batch(stmts, 'write');
     res.json({ ok: true });
