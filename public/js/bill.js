@@ -87,6 +87,8 @@
       </div>
       ${o.fulfilment === 'delivery' ? `<div class="deliver-box"><b>🚚 Home delivery</b>${esc(o.customerName)}${o.customerPhone ? ` · ${esc(o.customerPhone)}` : ''}<br>
         ${esc(o.deliveryAddress)}${o.deliveryLandmark ? `<br><span class="muted">Landmark:</span> ${esc(o.deliveryLandmark)}` : ''}${o.deliveryPincode ? `<br><span class="muted">Pincode:</span> ${esc(o.deliveryPincode)}` : ''}</div>`
+        : o.channel === 'counter' ? '<div class="deliver-box"><b>🧾 Bought at the shop counter</b></div>'
+        : o.channel === 'store' ? '<div class="deliver-box"><b>🏪 Bought in the shop</b></div>'
         : (o.shop.delivery_enabled === '1' ? '<div class="deliver-box"><b>🏪 Pickup at store</b></div>' : '')}
       <table class="items">
         <thead><tr><th>Item</th><th class="r">Rate</th><th class="r">Qty</th><th class="r">Amount</th></tr></thead>

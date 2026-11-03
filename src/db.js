@@ -190,6 +190,8 @@ const MIGRATIONS = [
   // How the customer said they'd pay, and how the bill was actually paid ('upi' / 'cash'; '' = not recorded).
   { table: 'orders', column: 'pay_pref', sql: "ALTER TABLE orders ADD COLUMN pay_pref TEXT NOT NULL DEFAULT 'upi'" },
   { table: 'orders', column: 'paid_by', sql: "ALTER TABLE orders ADD COLUMN paid_by TEXT NOT NULL DEFAULT ''" },
+  // Where the sale happened: 'online' (website), 'store' (customer billed themselves at the shop), 'counter' (staff billed).
+  { table: 'orders', column: 'channel', sql: "ALTER TABLE orders ADD COLUMN channel TEXT NOT NULL DEFAULT 'online'" },
 ];
 async function migrate(db) {
   const client = db.client;

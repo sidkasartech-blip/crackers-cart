@@ -303,6 +303,26 @@ dialog.sheet[open] { display: flex; animation: sheet-up .28s cubic-bezier(.2,.9,
 .move-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 12px; margin-bottom: 14px; border-radius: 14px; background: var(--surface-2); }
 .move-row .input { width: 84px; min-height: 38px; padding: 6px 10px; }
 
+/* counter billing */
+.counter { display: grid; gap: 14px; }
+@media (min-width: 900px) { .counter { grid-template-columns: 1.1fr 1fr; align-items: start; } .ctr-bill { position: sticky; top: calc(var(--topbar-h, 61px) + 70px); } }
+.ctr-results { display: grid; gap: 6px; max-height: 60vh; overflow-y: auto; }
+.ctr-item { display: grid; grid-template-columns: 44px 1fr auto; gap: 10px; align-items: center; text-align: left; padding: 6px 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; }
+.ctr-item:disabled { opacity: .45; cursor: not-allowed; }
+@media (hover: hover) { .ctr-item:not(:disabled):hover { border-color: var(--brand); } }
+.ctr-item .mini-thumb { width: 44px; height: 44px; border-radius: 10px; overflow: hidden; }
+.ctr-item .mini-thumb .ph { font-size: .85rem; }
+.ctr-item-name small, .ctr-line-name small { display: block; color: var(--muted); font-size: .76rem; font-weight: 600; }
+.ctr-item-price { font-weight: 800; }
+.ctr-line { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.ctr-line .stepper { height: 36px; width: 116px; border-radius: 10px; box-shadow: none; }
+.ctr-line .stepper button { width: 36px; }
+.ctr-line-total { min-width: 64px; text-align: right; }
+.ctr-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.ctr-actions [data-pay="qr"] { grid-column: 1 / -1; }
+.qr-pair { display: grid; gap: 20px; }
+@media (min-width: 900px) { .qr-pair { grid-template-columns: 1fr 1fr; } }
+
 /* skeleton loading */
 .skeleton .thumb, .skeleton .sk { background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
 .skeleton .sk { height: 12px; border-radius: 6px; margin-top: 8px; }
@@ -405,6 +425,9 @@ dialog.sheet[open] { display: flex; animation: sheet-up .28s cubic-bezier(.2,.9,
 .bill-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 0 0 40px; }
 
 @media print {
+  .toast, dialog { display: none !important; }
+  body[data-print-only="online"] #storePoster, body[data-print-only="store"] #qrPoster { display: none !important; }
+  .qr-pair { display: block; }
   body { background: #fff; color: #000; }
   .topbar, .bill-actions, .no-print { display: none !important; }
   .card { box-shadow: none; border: 0; }

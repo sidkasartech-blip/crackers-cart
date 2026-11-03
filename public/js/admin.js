@@ -9,6 +9,7 @@
     const d = new Date(iso);
     return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   };
+  const channelBadge = (c) => ({ counter: '<span class="badge">🧾 Counter</span> ', store: '<span class="badge">🏪 In store</span> ' }[c] || '');
   const catName = (id) => (state.categories.find((c) => c.id === id) || {}).name || '—';
   const statusBadge = (s) => `<span class="badge ${{ paid: 'ok', pending: 'warn', cancelled: 'danger' }[s]}">${{ paid: 'Paid', pending: 'Pending', cancelled: 'Cancelled' }[s]}</span>`;
   function catOptions(sel, allLabel) {
@@ -85,7 +86,7 @@
   /* ---------- tabs ---------- */
   const loaders = {
     dashboard: loadDashboard, items: loadItems, orders: loadOrders, discounts: loadDiscounts,
-    categories: loadCategoriesTab, settings: loadSettings, qr: loadQr,
+    categories: loadCategoriesTab, settings: loadSettings, qr: loadQr, counter: loadCounter,
   };
   function showTab(tab) {
     state.tab = tab;
@@ -102,7 +103,7 @@
     const d = await api('/api/admin/dashboard');
     const stat = (cls, icon, label, value, sub = '') => `<div class="card stat ${cls}"><div class="ic">${icon}</div><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
     $('#stats').innerHTML = [
-      stat('s1', '📈', "Today's sales", money(d.today.sales), `${d.today.orders} bills · paid: 📱 ${money(d.today.paidUpi)} UPI · 💵 ${money(d.today.paidCash)} cash`),
+      stat('s1', '📈', "Today's sales", money(d.today.sales), `${d.today.orders} bills · 🌐 ${money(d.today.online)} online · 🏪 ${money(d.today.shop)} shop<br>paid: 📱 ${money(d.today.paidUpi)} UPI · 💵 ${money(d.today.paidCash)} cash`),
       stat('s2', '⏳', 'Awaiting payment', money(d.pending.v), `${d.pending.n} bills`),
       stat('s3', '💰', 'Total collected', money(d.allTime.sales), `${d.allTime.orders} paid bills`),
       stat('s4', '📦', 'Total stock', `${d.stockValue.units}`, `${d.stockValue.online} online · ${d.stockValue.store} in store · worth ${money(d.stockValue.v)}`),
@@ -394,12 +395,12 @@
 
   /* ---------- orders ---------- */
   async function loadOrders() {
-    const qs = new URLSearchParams({ status: $('#orderStatus').value, date: $('#orderDate').value, q: $('#orderSearch').value.trim() });
+    const qs = new URLSearchParams({ status: $('#orderStatus').value, channel: $('#orderChannel').value, date: $('#orderDate').value, q: $('#orderSearch').value.trim() });
     state.orders = await api(`/api/admin/orders?${qs}`);
     $('#orderRows').innerHTML = state.orders.length ? state.orders.map((o) => `<tr data-id="${o.id}">
         <td><b>${esc(o.billNo)}</b></td>
         <td class="small">${esc(fmtTime(o.createdAt))}</td>
-        <td>${o.fulfilment === 'delivery' ? '<span class="badge brand">🚚 Delivery</span> ' : ''}${esc(o.customerName || '—')}<div class="small muted">${esc(o.customerPhone)}</div></td>
+        <td>${channelBadge(o.channel)}${o.fulfilment === 'delivery' ? '<span class="badge brand">🚚 Delivery</span> ' : ''}${esc(o.customerName || '—')}<div class="small muted">${esc(o.customerPhone)}</div></td>
         <td class="r num"><b>${money(o.total)}</b></td>
         <td>${statusBadge(o.status)}<div class="small muted">${o.status === 'paid' ? (o.paidBy === 'cash' ? '💵 Cash' : '📱 UPI') : (o.payPref === 'cash' ? 'chose 💵 cash' : 'chose 📱 UPI')}</div></td>
         <td class="r" style="white-space:nowrap">
@@ -411,6 +412,7 @@
   let orderSearchTimer;
   $('#orderSearch').addEventListener('input', () => { clearTimeout(orderSearchTimer); orderSearchTimer = setTimeout(loadOrders, 250); });
   $('#orderStatus').addEventListener('change', loadOrders);
+  $('#orderChannel').addEventListener('change', loadOrders);
   $('#orderDate').addEventListener('change', loadOrders);
 
   async function setOrderStatus(id, status, paidBy) {
@@ -428,7 +430,7 @@
 
   async function openOrder(id) {
     const o = await api(`/api/orders/${id}`);
-    $('#orderDlgTitle').innerHTML = `${esc(o.billNo)} ${statusBadge(o.status)} <span class="badge">${o.status === 'paid' ? (o.paidBy === 'cash' ? '💵 Paid in cash' : '📱 Paid by UPI') : (o.payPref === 'cash' ? '💵 Will pay cash' : '📱 Will pay by UPI')}</span>`;
+    $('#orderDlgTitle').innerHTML = `${esc(o.billNo)} ${statusBadge(o.status)} ${channelBadge(o.channel)}<span class="badge">${o.status === 'paid' ? (o.paidBy === 'cash' ? '💵 Paid in cash' : '📱 Paid by UPI') : (o.payPref === 'cash' ? '💵 Will pay cash' : '📱 Will pay by UPI')}</span>`;
     $('#orderDlgBody').innerHTML = `
       <div class="small muted" style="margin-bottom:8px">${esc(fmtTime(o.createdAt))}${o.customerName ? ' · ' + esc(o.customerName) : ''}${o.customerPhone ? ' · ' + esc(o.customerPhone) : ''}</div>
       ${o.fulfilment === 'delivery' ? `<div class="banner ok" style="margin:0 0 12px;font-weight:500"><b>🚚 Deliver to:</b> ${esc(o.customerName)}${o.customerPhone ? ` · <a href="tel:${esc(o.customerPhone)}">${esc(o.customerPhone)}</a>` : ''}<br>
@@ -581,12 +583,142 @@
 
   /* ---------- store QR ---------- */
   async function loadQr() {
-    const [{ url, qr }, s] = await Promise.all([api('/api/admin/store-qr'), api('/api/admin/settings')]);
+    const [q, s] = await Promise.all([api('/api/admin/store-qr'), api('/api/admin/settings')]);
     $('#qrShop').textContent = s.shop_name;
-    $('#qrImg').src = qr;
-    $('#qrUrl').textContent = url;
-    $('#qrDownload').href = qr;
+    $('#qrImg').src = q.qr;
+    $('#qrUrl').textContent = q.url;
+    $('#qrDownload').href = q.qr;
+    $('#qrShop2').textContent = s.shop_name;
+    $('#qrImg2').src = q.storeQr;
+    $('#qrUrl2').textContent = q.storeUrl;
+    $('#qrDownload2').href = q.storeQr;
   }
+  // Print just the chosen poster.
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-print]');
+    if (!b) return;
+    document.body.dataset.printOnly = b.dataset.print;
+    window.print();
+  });
+  window.addEventListener('afterprint', () => { delete document.body.dataset.printOnly; });
+
+  /* ---------- counter billing ---------- */
+  const CTR_KEY = 'cc_counter_v1';
+  const ctr = { items: [], byId: new Map(), lines: safeGet(CTR_KEY, []) || [], quote: null, busy: false };
+  const ctrSave = () => safeSet(CTR_KEY, ctr.lines);
+  async function loadCounter() {
+    ctr.items = (await api('/api/admin/items')).filter((i) => i.active || i.totalStock > 0);
+    ctr.byId = new Map(ctr.items.map((i) => [i.id, i]));
+    // Number items the same way as the rate card (by category, then display order) so "#12" can be typed.
+    await loadCategories();
+    const order = state.categories.slice().sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id).map((c) => c.id); // same order as the rate card
+    const sorted = ctr.items.slice().sort((a, b) => {
+      const ca = order.indexOf(a.categoryId); const cb = order.indexOf(b.categoryId);
+      return (ca < 0 ? 1e9 : ca) - (cb < 0 ? 1e9 : cb) || a.sortOrder - b.sortOrder || a.id - b.id;
+    });
+    sorted.forEach((it, i) => { it.no = i + 1; });
+    ctr.items = sorted;
+    renderCtrResults();
+    renderCtrBill();
+  }
+  function renderCtrResults() {
+    const q = $('#ctrSearch').value.trim().toLowerCase();
+    const num = /^#?\d+$/.test(q) ? Number(q.replace('#', '')) : null;
+    const list = ctr.items.filter((i) => !q || (num !== null ? i.no === num : i.name.toLowerCase().includes(q))).slice(0, 40);
+    $('#ctrResults').innerHTML = list.length ? list.map((i) => `<button type="button" class="ctr-item" data-add="${i.id}" ${i.totalStock <= 0 ? 'disabled' : ''}>
+        <span class="mini-thumb thumb">${thumbHtml(i)}</span>
+        <span class="ctr-item-name"><b>${esc(i.name)}</b><small>#${i.no} · Store ${i.storeStock} · Online ${i.stock}</small></span>
+        <span class="ctr-item-price">${money(i.price)}</span>
+      </button>`).join('') : '<div class="empty">No items match.</div>';
+  }
+  async function renderCtrBill() {
+    ctr.lines = ctr.lines.filter((l) => ctr.byId.has(l.itemId) && l.qty > 0);
+    ctrSave();
+    if (!ctr.lines.length) {
+      $('#ctrLines').innerHTML = '<div class="muted small" style="padding:8px 0 12px">Search and tap items to add them.</div>';
+      $('#ctrTotals').innerHTML = '';
+      $$('.ctr-actions button').forEach((b) => { b.disabled = true; });
+      return;
+    }
+    $('#ctrLines').innerHTML = ctr.lines.map((l) => {
+      const it = ctr.byId.get(l.itemId);
+      return `<div class="ctr-line">
+        <div class="ctr-line-name"><b>${esc(it.name)}</b><small>${money(it.price)} × ${l.qty}</small></div>
+        ${stepperHtml(it.id, l.qty, it.totalStock)}
+        <b class="num ctr-line-total">${money(it.price * l.qty)}</b>
+      </div>`;
+    }).join('');
+    try {
+      ctr.quote = await api('/api/admin/counter/quote', { method: 'POST', body: { items: ctr.lines } });
+    } catch (e) { toast(e.message, true); return; }
+    const q = ctr.quote;
+    const rows = [`<tr><td>Items total</td><td>${money(q.subtotal)}</td></tr>`];
+    if (q.discount) rows.push(`<tr class="disc"><td>${esc(q.discountLabel)}</td><td>−${money(q.discount)}</td></tr>`);
+    if (q.tax) rows.push(`<tr><td>Tax (${q.taxPercent}%)</td><td>${money(q.tax)}</td></tr>`);
+    if (q.roundOff) rows.push(`<tr><td class="muted">Round off</td><td class="muted">${q.roundOff > 0 ? '+' : '−'}${money(Math.abs(q.roundOff))}</td></tr>`);
+    rows.push(`<tr class="grand"><td>Total</td><td>${money(q.total)}</td></tr>`);
+    if (q.errors.length) rows.push(`<tr><td colspan="2" style="color:var(--danger);font-weight:700">${q.errors.map((e) => esc(e.message)).join('<br>')}</td></tr>`);
+    $('#ctrTotals').innerHTML = rows.join('');
+    $$('.ctr-actions button').forEach((b) => { b.disabled = q.errors.length > 0 || ctr.busy; });
+  }
+  function ctrAdd(id, delta = 1) {
+    const it = ctr.byId.get(id);
+    const l = ctr.lines.find((x) => x.itemId === id);
+    const next = Math.max(0, (l ? l.qty : 0) + delta);
+    if (next > it.totalStock) { toast(`Only ${it.totalStock} in stock`, true); return; }
+    if (l) l.qty = next; else ctr.lines.push({ itemId: id, qty: next });
+    renderCtrBill();
+  }
+  $('#ctrResults').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-add]');
+    if (!b) return;
+    ctrAdd(Number(b.dataset.add));
+    if (navigator.vibrate) navigator.vibrate(10);
+  });
+  $('#ctrSearch').addEventListener('input', renderCtrResults);
+  $('#ctrSearch').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const first = $('#ctrResults [data-add]:not([disabled])');
+    if (first) { ctrAdd(Number(first.dataset.add)); $('#ctrSearch').select(); }
+  });
+  bindSteppers($('#ctrLines'), (id, qty) => {
+    const l = ctr.lines.find((x) => x.itemId === id);
+    if (l) l.qty = qty;
+    renderCtrBill();
+  });
+  $('#ctrClear').addEventListener('click', () => {
+    if (ctr.lines.length && !confirm('Clear this bill?')) return;
+    ctr.lines = []; $('#ctrName').value = ''; $('#ctrPhone').value = '';
+    renderCtrBill();
+  });
+  $('.ctr-actions').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-pay]');
+    if (!b || ctr.busy || !ctr.lines.length) return;
+    const pay = b.dataset.pay;
+    ctr.busy = true;
+    $$('.ctr-actions button').forEach((x) => { x.disabled = true; });
+    // Open the bill window now (before the await) so phones don't block it as a pop-up.
+    const win = pay === 'qr' ? window.open('', '_blank') : null;
+    try {
+      const r = await api('/api/admin/counter/bills', {
+        method: 'POST',
+        body: { items: ctr.lines, customerName: $('#ctrName').value, customerPhone: $('#ctrPhone').value, paidBy: pay === 'qr' ? undefined : pay },
+      });
+      const url = `/bill?id=${r.id}&t=${r.token}`;
+      if (win) win.location = url;
+      toast(pay === 'qr' ? `Bill ${r.billNo} created: customer can scan the QR` : `Bill ${r.billNo} · ${money(r.total)} paid by ${pay === 'cash' ? 'cash' : 'UPI'}`);
+      ctr.lines = []; $('#ctrName').value = ''; $('#ctrPhone').value = '';
+      await loadCounter();
+      $('#ctrSearch').value = ''; renderCtrResults();
+    } catch (err) {
+      if (win) win.close();
+      toast(err.message, true);
+      await loadCounter();
+    } finally {
+      ctr.busy = false;
+      renderCtrBill();
+    }
+  });
 
   boot();
 })();

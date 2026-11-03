@@ -42,6 +42,7 @@
     <div class="wrap">
       <nav class="admin-nav" role="tablist">
         <button data-tab="dashboard" aria-selected="true">Dashboard</button>
+        <button data-tab="counter">🧾 New bill</button>
         <button data-tab="items">Inventory</button>
         <button data-tab="orders">Bills</button>
         <button data-tab="discounts">Offers</button>
@@ -99,6 +100,11 @@
         </div>
         <div class="row" style="margin-bottom:12px">
           <input class="input" id="orderSearch" type="search" placeholder="Bill no, name or phone">
+          <select class="input" id="orderChannel">
+            <option value="">Online &amp; shop</option>
+            <option value="online">🌐 Online only</option>
+            <option value="shop">🏪 Shop only (counter + in-store)</option>
+          </select>
           <select class="input" id="orderStatus">
             <option value="">All statuses</option>
             <option value="pending" selected>Pending payment</option>
@@ -221,19 +227,70 @@
       </section>
 
       <!-- Store QR -->
-      <section class="section hidden" data-panel="qr">
-        <div class="card qr-poster" id="qrPoster">
-          <div class="poster-head">
-            <h2 id="qrShop"></h2>
-            <p>Scan to browse &amp; order crackers</p>
-          </div>
-          <img id="qrImg" alt="Shop QR code">
-          <div class="small muted" id="qrUrl"></div>
-          <div class="steps"><span>① Scan</span><span>② Pick crackers</span><span>③ Pay by UPI</span></div>
+      <section class="section hidden" data-panel="counter">
+        <div class="section-head">
+          <h2>New bill <span class="muted small" style="font-weight:600">· counter sale</span></h2>
+          <button class="btn btn-sm btn-ghost" id="ctrClear" type="button">Clear</button>
         </div>
-        <div class="bill-actions no-print">
-          <button class="btn btn-primary" onclick="window.print()">Print poster</button>
-          <a class="btn" id="qrDownload" download="shop-qr.png">Download QR</a>
+        <p class="muted small" style="margin:-6px 0 12px">For customers buying at the shop. Stock is taken from <b>Store</b> first, then Online. Offers apply automatically.</p>
+        <div class="counter">
+          <div class="card pad ctr-pick">
+            <div class="search" style="margin-bottom:10px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input class="input" id="ctrSearch" type="search" enterkeyhint="search" placeholder="Type item name or number…" autocomplete="off" autocorrect="off" spellcheck="false">
+            </div>
+            <div class="ctr-results" id="ctrResults"></div>
+          </div>
+          <div class="card pad ctr-bill">
+            <div class="card-title">Bill</div>
+            <div id="ctrLines"></div>
+            <table class="totals" id="ctrTotals"></table>
+            <div class="row" style="margin-top:10px">
+              <label class="field"><span>Customer name (optional)</span><input class="input" id="ctrName" maxlength="80" autocomplete="off"></label>
+              <label class="field"><span>Mobile (optional)</span><input class="input" id="ctrPhone" type="tel" inputmode="tel" maxlength="20" autocomplete="off"></label>
+            </div>
+            <div class="ctr-actions">
+              <button class="btn btn-primary btn-lg" type="button" data-pay="cash">💵 Paid cash</button>
+              <button class="btn btn-primary btn-lg" type="button" data-pay="upi">📱 Paid UPI</button>
+              <button class="btn btn-lg" type="button" data-pay="qr">Show UPI QR (pay later)</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section hidden" data-panel="qr">
+        <p class="muted small no-print" style="margin:0 0 12px">Two posters: the <b>online</b> one for anywhere (home delivery, sharing on WhatsApp), and the <b>in-store</b> one for inside the shop. Bills from the in-store QR are marked "In store" and take <b>Store</b> stock first.</p>
+        <div class="qr-pair">
+          <div>
+            <div class="card qr-poster" id="qrPoster">
+              <div class="poster-head">
+                <h2 id="qrShop"></h2>
+                <p>Scan to browse &amp; order crackers</p>
+              </div>
+              <img id="qrImg" alt="Shop QR code">
+              <div class="small muted" id="qrUrl"></div>
+              <div class="steps"><span>① Scan</span><span>② Pick crackers</span><span>③ Pay by UPI</span></div>
+            </div>
+            <div class="bill-actions no-print">
+              <button class="btn btn-primary" type="button" data-print="online">Print online poster</button>
+              <a class="btn" id="qrDownload" download="shop-qr.png">Download QR</a>
+            </div>
+          </div>
+          <div>
+            <div class="card qr-poster" id="storePoster">
+              <div class="poster-head">
+                <h2 id="qrShop2"></h2>
+                <p>In the shop? Scan to see prices &amp; make your bill</p>
+              </div>
+              <img id="qrImg2" alt="In-store QR code">
+              <div class="small muted" id="qrUrl2"></div>
+              <div class="steps"><span>① Scan</span><span>② Add items</span><span>③ Pay at counter</span></div>
+            </div>
+            <div class="bill-actions no-print">
+              <button class="btn btn-primary" type="button" data-print="store">Print in-store poster</button>
+              <a class="btn" id="qrDownload2" download="in-store-qr.png">Download QR</a>
+            </div>
+          </div>
         </div>
       </section>
     </div>

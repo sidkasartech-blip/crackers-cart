@@ -10,7 +10,7 @@
   async function load() {
     if (!data.items.length) $('#grid').innerHTML = skeleton();
     try {
-      data = await api('/api/catalog');
+      data = await api(catalogUrl());
     } catch (e) {
       $('#grid').innerHTML = '<div class="empty"><div class="big">📡</div><p>Could not load the catalog. Check your connection.</p><button class="btn" onclick="location.reload()">Try again</button></div>';
       return;
@@ -22,6 +22,7 @@
     $('#shopName').textContent = s.shop_name || 'Crackers';
     $('#tagline').textContent = s.tagline || '';
     if (s.shop_open !== '1') { $('#closed').textContent = s.closed_message; $('#closed').classList.remove('hidden'); }
+    if (AT_STORE) { $('#inStore').classList.remove('hidden'); }
     const last = safeGet('cc_last_bill', null);
     if (last && last.id) {
       const lb = $('#lastBill');

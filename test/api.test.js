@@ -403,3 +403,58 @@ test('cash or UPI: customer choice, how it was paid, dashboard split', async (t)
   const o = (await call('POST', '/api/orders', { items, payment: 'cash' })).data;
   assert.equal((await bill(o)).payPref, 'upi');
 });
+
+test('counter and in-store bills take store stock first and are tracked separately', async (t) => {
+  const { call, close } = await setup();
+  t.after(close);
+  await call('POST', '/api/admin/login', { password: 'admin123' });
+  const item = (await call('POST', '/api/admin/items', { name: 'Counter Pot', price: '100', stock: 3, storeStock: 2 })).data;
+  const get = async () => (await call('GET', '/api/admin/items')).data.find((i) => i.id === item.id);
+
+  // Staff counter sale, paid in cash: store first (2), then online (1).
+  const c = await call('POST', '/api/admin/counter/bills', { items: [{ itemId: item.id, qty: 3 }], paidBy: 'cash', customerName: 'Walk-in' });
+  assert.equal(c.status, 201);
+  let it = await get();
+  assert.deepEqual([it.stock, it.storeStock], [2, 0]); // all 2 from the store, then 1 from online
+  const bill = (await call('GET', `/api/orders/${c.data.id}?t=${c.data.token}`)).data;
+  assert.equal(bill.status, 'paid');
+  assert.equal(bill.paidBy, 'cash');
+  assert.equal(bill.channel, 'counter');
+
+  // Counter bill left unpaid (customer scans the QR).
+  await call('PATCH', `/api/admin/items/${item.id}`, { addStoreStock: 4 });
+  const q = await call('POST', '/api/admin/counter/bills', { items: [{ itemId: item.id, qty: 1 }] });
+  assert.equal((await call('GET', `/api/orders/${q.data.id}?t=${q.data.token}`)).data.status, 'pending');
+  it = await get();
+  assert.deepEqual([it.stock, it.storeStock], [2, 3]);
+
+  // Customer self-billing with the in-store QR: store first as well.
+  const s = await call('POST', '/api/orders', { items: [{ itemId: item.id, qty: 2 }], channel: 'store' });
+  assert.equal(s.status, 201);
+  it = await get();
+  assert.deepEqual([it.stock, it.storeStock], [2, 1]);
+  // Online customer: online first.
+  await call('POST', '/api/orders', { items: [{ itemId: item.id, qty: 1 }] });
+  it = await get();
+  assert.deepEqual([it.stock, it.storeStock], [1, 1]);
+
+  // Customers can't pretend to be the counter.
+  const fake = await call('POST', '/api/orders', { items: [{ itemId: item.id, qty: 1 }], channel: 'counter' });
+  assert.equal((await call('GET', `/api/orders/${fake.data.id}?t=${fake.data.token}`)).data.channel, 'online');
+
+  // Counter routes need the admin login.
+  await call('POST', '/api/admin/logout');
+  assert.equal((await call('POST', '/api/admin/counter/bills', { items: [{ itemId: item.id, qty: 1 }], paidBy: 'cash' })).status, 401);
+  await call('POST', '/api/admin/login', { password: 'admin123' });
+
+  // Cancelling a counter bill returns the stock where it came from.
+  await call('PATCH', `/api/admin/orders/${c.data.id}`, { status: 'cancelled' });
+  it = await get();
+  assert.deepEqual([it.stock, it.storeStock], [1, 3]);
+
+  const shopOnly = (await call('GET', '/api/admin/orders?channel=shop')).data;
+  assert.ok(shopOnly.length >= 3 && shopOnly.every((o) => o.channel !== 'online'));
+  const d = (await call('GET', '/api/admin/dashboard')).data.today;
+  assert.equal(d.online + d.shop, d.sales);
+  assert.match((await call('GET', '/api/admin/orders.csv')).data, /"Counter"/);
+});

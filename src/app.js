@@ -105,11 +105,14 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
   const wantsDelivery = (body, settings) => body.fulfilment === 'delivery' && settings.delivery_enabled === '1';
   // What the online shop can sell: online stock, plus offline-store stock when that setting is on.
   const sharesStore = (settings) => settings.online_sells_store_stock === '1';
-  const sellable = (row, settings) => row.stock + (sharesStore(settings) ? (row.store_stock || 0) : 0);
-  const quote = async (body, settings, q = db) => computeBill({
+  // In the shop (in-store QR or counter) everything on hand can be sold, whatever the online setting.
+  const sellable = (row, settings, channel = 'online') =>
+    row.stock + (channel !== 'online' || sharesStore(settings) ? (row.store_stock || 0) : 0);
+  const channelOf = (v) => (v === 'store' || v === 'counter' ? v : 'online');
+  const quote = async (body, settings, q = db, channel = channelOf(body.channel)) => computeBill({
     ...(await (async () => {
       const ctx = await loadPricingContext(q);
-      ctx.items = new Map([...ctx.items].map(([id, r]) => [id, { ...r, stock: sellable(r, settings) }]));
+      ctx.items = new Map([...ctx.items].map(([id, r]) => [id, { ...r, stock: sellable(r, settings, channel) }]));
       return ctx;
     })()),
     cart: body.items,
@@ -130,7 +133,7 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
       fulfilment: order.fulfilment || 'pickup', deliveryAddress: order.delivery_address || '',
       deliveryLandmark: order.delivery_landmark || '', deliveryPincode: order.delivery_pincode || '',
       deliveryCharge: order.delivery_charge || 0,
-      payPref: order.pay_pref || 'upi', paidBy: order.paid_by || '',
+      payPref: order.pay_pref || 'upi', paidBy: order.paid_by || '', channel: order.channel || 'online',
     };
     if (withLines) {
       out.lines = await db.all('SELECT item_id AS itemId, name, unit, price, qty, total FROM order_items WHERE order_id = ? ORDER BY id', [order.id]);
@@ -158,7 +161,7 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
     res.json({
       settings: pub,
       categories,
-      items: items.map((r) => ({ ...r, stock: sellable(r, settings) })).map(itemOut)
+      items: items.map((r) => ({ ...r, stock: sellable(r, settings, req.query.at === 'store' ? 'store' : 'online') })).map(itemOut)
         .map(({ lowStock, active, sortOrder, updatedAt, storeStock, totalStock, mrp, ...rest }) => rest),
       offers,
     });
@@ -168,14 +171,16 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
     res.json(await quote(req.body || {}, await getSettings(db)));
   });
 
-  app.post('/api/orders', async (req, res) => {
-    const body = req.body || {};
-    const settings = await getSettings(db);
-    if (settings.shop_open !== '1') throw bad(settings.closed_message || 'Shop is closed');
-
-    if (body.fulfilment === 'delivery' && settings.delivery_enabled !== '1') throw bad('Home delivery is not available right now. Please choose pickup.');
-    const delivery = wantsDelivery(body, settings);
-    const payPref = body.payment === 'cash' && settings.cash_enabled === '1' ? 'cash' : 'upi';
+  /**
+   * Creates a bill and takes the stock, all in one transaction.
+   * channel 'online': online stock first, then store stock (if the setting allows).
+   * channel 'store' / 'counter': the boxes leave the shop shelf, so store stock first, then online.
+   */
+  async function createOrder(body, settings, channel, { paidBy = null } = {}) {
+    const counter = channel === 'counter';
+    if (!counter && body.fulfilment === 'delivery' && settings.delivery_enabled !== '1') throw bad('Home delivery is not available right now. Please choose pickup.');
+    const delivery = !counter && wantsDelivery(body, settings);
+    const payPref = paidBy || (body.payment === 'cash' && (counter || settings.cash_enabled === '1') ? 'cash' : 'upi');
     const name = str(body.customerName, 80);
     const phone = str(body.customerPhone, 20);
     const address = str(body.deliveryAddress, 500);
@@ -188,41 +193,59 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
       if (pincode && !/^\d{6}$/.test(pincode)) throw bad('Pincode should be 6 digits');
     }
 
-    const order = await db.tx(async (t) => {
-      const bill = await quote(body, settings, t);
-      if (bill.errors.length) throw bad('Some items in your cart need attention', { errors: bill.errors });
-      if (!bill.lines.length) throw bad('Your cart is empty');
+    return db.tx(async (t) => {
+      const bill = await quote({ ...body, fulfilment: delivery ? 'delivery' : 'pickup' }, settings, t, channel);
+      if (bill.errors.length) throw bad('Some items need attention', { errors: bill.errors });
+      if (!bill.lines.length) throw bad(counter ? 'Add at least one item' : 'Your cart is empty');
       const minOrder = Number(settings.min_order) || 0;
-      if (bill.subtotal < minOrder * 100) throw bad(`Minimum order is ₹${minOrder}`);
+      if (!counter && bill.subtotal < minOrder * 100) throw bad(`Minimum order is ₹${minOrder}`);
 
       const token = crypto.randomBytes(12).toString('hex');
       const info = await t.run(`INSERT INTO orders
         (token, bill_no, customer_name, customer_phone, subtotal, discount, discount_label, tax, tax_percent, round_off, total,
-         fulfilment, delivery_address, delivery_landmark, delivery_pincode, delivery_charge, pay_pref)
-        VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+         fulfilment, delivery_address, delivery_landmark, delivery_pincode, delivery_charge, pay_pref, channel,
+         status, paid_by, paid_at)
+        VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${paidBy ? "datetime('now')" : 'NULL'})`, [
         token, name, phone,
         bill.subtotal, bill.discount, bill.discountLabel, bill.tax, bill.taxPercent, bill.roundOff, bill.total,
-        delivery ? 'delivery' : 'pickup', delivery ? address : '', delivery ? landmark : '', delivery ? pincode : '', bill.deliveryCharge, payPref,
+        delivery ? 'delivery' : 'pickup', delivery ? address : '', delivery ? landmark : '', delivery ? pincode : '', bill.deliveryCharge, payPref, channel,
+        paidBy ? 'paid' : 'pending', paidBy || '',
       ]);
       const id = info.lastInsertRowid;
       const billNo = `${settings.bill_prefix || ''}${String(id).padStart(5, '0')}`;
       await t.run('UPDATE orders SET bill_no = ? WHERE id = ?', [billNo, id]);
 
+      const storeFirst = channel !== 'online';
       for (const l of bill.lines) {
-        // Take from online stock first, then (if allowed) from the offline store.
         const row = await t.get('SELECT stock, store_stock FROM items WHERE id = ?', [l.itemId]);
-        const fromOnline = Math.min(l.qty, Math.max(0, row.stock));
-        const fromStore = l.qty - fromOnline;
-        if (fromStore > 0 && (!sharesStore(settings) || fromStore > row.store_stock)) throw bad(`${l.name} just went out of stock`);
+        let fromOnline;
+        let fromStore;
+        if (storeFirst) {
+          fromStore = Math.min(l.qty, Math.max(0, row.store_stock));
+          fromOnline = l.qty - fromStore;
+        } else {
+          fromOnline = Math.min(l.qty, Math.max(0, row.stock));
+          fromStore = l.qty - fromOnline;
+          if (fromStore > 0 && !sharesStore(settings)) throw bad(`${l.name} just went out of stock`);
+        }
         const taken = await t.run('UPDATE items SET stock = stock - ?, store_stock = store_stock - ? WHERE id = ? AND stock >= ? AND store_stock >= ?',
           [fromOnline, fromStore, l.itemId, fromOnline, fromStore]);
         if (taken.changes !== 1) throw bad(`${l.name} just went out of stock`);
         await t.run('INSERT INTO order_items (order_id, item_id, name, unit, price, qty, total, from_online, from_store) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [id, l.itemId, l.name, l.unit, l.price, l.qty, l.total, fromOnline, fromStore]);
       }
-      return { id, token };
+      return { id, token, billNo, total: bill.total };
     });
-    res.status(201).json(order);
+  }
+
+  app.post('/api/orders', async (req, res) => {
+    const body = req.body || {};
+    const settings = await getSettings(db);
+    if (settings.shop_open !== '1') throw bad(settings.closed_message || 'Shop is closed');
+    // Customers can only create 'online' or 'store' (in-store QR) bills; 'counter' is staff-only.
+    const channel = body.channel === 'store' ? 'store' : 'online';
+    const { id, token } = await createOrder(body, settings, channel);
+    res.status(201).json({ id, token });
   });
 
   app.get('/api/orders/:id', async (req, res) => {
@@ -286,11 +309,26 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
   const snapshotBefore = (label) => async (req, res, next) => { await backups.snapshot(db, label(req)); next(); };
   app.use('/api/admin', admin);
 
+  /* ----- counter billing (store staff) ----- */
+  admin.post('/counter/quote', async (req, res) => {
+    res.json(await quote(req.body || {}, await getSettings(db), db, 'counter'));
+  });
+  // paidBy: 'cash' | 'upi' marks it paid now; omit to leave it pending (e.g. customer is scanning the UPI QR).
+  admin.post('/counter/bills', async (req, res) => {
+    const body = req.body || {};
+    const paidBy = ['cash', 'upi'].includes(body.paidBy) ? body.paidBy : null;
+    const out = await createOrder(body, await getSettings(db), 'counter', { paidBy });
+    res.status(201).json(out);
+  });
+
   /* ----- dashboard ----- */
   admin.get('/dashboard', async (req, res) => {
     const today = `date(created_at, ${LOCAL}) = date('now', ${LOCAL})`;
     const [todayRow, paidToday, pending, allTime, lowStock, topItems, stockValue] = await Promise.all([
-      db.get(`SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS sales FROM orders WHERE status != 'cancelled' AND ${today}`),
+      db.get(`SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS sales,
+        COALESCE(SUM(CASE WHEN channel = 'online' THEN total END),0) AS online,
+        COALESCE(SUM(CASE WHEN channel != 'online' THEN total END),0) AS shop
+        FROM orders WHERE status != 'cancelled' AND ${today}`),
       db.get(`SELECT COALESCE(SUM(total),0) AS v, COALESCE(SUM(CASE WHEN paid_by = 'cash' THEN total END),0) AS cash,
         COALESCE(SUM(CASE WHEN paid_by != 'cash' THEN total END),0) AS upi FROM orders WHERE status = 'paid' AND ${today}`),
       db.get(`SELECT COUNT(*) AS n, COALESCE(SUM(total),0) AS v FROM orders WHERE status = 'pending'`),
@@ -496,6 +534,8 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
     const where = [];
     const args = [];
     if (['pending', 'paid', 'cancelled'].includes(req.query.status)) { where.push('status = ?'); args.push(req.query.status); }
+    if (['online', 'store', 'counter'].includes(req.query.channel)) { where.push('channel = ?'); args.push(req.query.channel); }
+    if (req.query.channel === 'shop') where.push("channel != 'online'");
     if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')) { where.push(`date(created_at, ${LOCAL}) = ?`); args.push(req.query.date); }
     if (req.query.q) {
       where.push('(bill_no LIKE ? OR customer_name LIKE ? OR customer_phone LIKE ?)');
@@ -508,15 +548,15 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
 
   admin.get('/orders.csv', async (req, res) => {
     const rows = await db.all(`SELECT o.bill_no, datetime(o.created_at, ${LOCAL}) AS created, o.status, o.customer_name, o.customer_phone,
-      o.fulfilment, o.delivery_address, o.delivery_landmark, o.delivery_pincode, o.delivery_charge, o.pay_pref, o.paid_by,
+      o.fulfilment, o.delivery_address, o.delivery_landmark, o.delivery_pincode, o.delivery_charge, o.pay_pref, o.paid_by, o.channel,
       oi.name, oi.qty, oi.price, oi.total, o.discount, o.tax, o.total AS bill_total
       FROM orders o JOIN order_items oi ON oi.order_id = o.id ORDER BY o.id DESC, oi.id`);
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rupees = (p) => (p / 100).toFixed(2);
-    const lines = [['Bill', 'Date', 'Status', 'Paid by', 'Customer', 'Phone', 'Pickup/Delivery', 'Delivery address', 'Landmark', 'Pincode', 'Item', 'Qty', 'Rate', 'Line total',
+    const lines = [['Bill', 'Date', 'Sold', 'Status', 'Paid by', 'Customer', 'Phone', 'Pickup/Delivery', 'Delivery address', 'Landmark', 'Pincode', 'Item', 'Qty', 'Rate', 'Line total',
       'Bill discount', 'Bill tax', 'Delivery charge', 'Bill total'].map(esc).join(',')];
     for (const r of rows) {
-      lines.push([r.bill_no, r.created, r.status, r.status === 'paid' ? (r.paid_by === 'cash' ? 'Cash' : 'UPI') : `(chose ${r.pay_pref === 'cash' ? 'cash' : 'UPI'})`, r.customer_name, r.customer_phone, r.fulfilment === 'delivery' ? 'Delivery' : 'Pickup',
+      lines.push([r.bill_no, r.created, { online: 'Online', store: 'In store (self)', counter: 'Counter' }[r.channel] || 'Online', r.status, r.status === 'paid' ? (r.paid_by === 'cash' ? 'Cash' : 'UPI') : `(chose ${r.pay_pref === 'cash' ? 'cash' : 'UPI'})`, r.customer_name, r.customer_phone, r.fulfilment === 'delivery' ? 'Delivery' : 'Pickup',
         r.delivery_address, r.delivery_landmark, r.delivery_pincode, r.name, r.qty, rupees(r.price), rupees(r.total),
         rupees(r.discount), rupees(r.tax), rupees(r.delivery_charge || 0), rupees(r.bill_total)].map(esc).join(','));
     }
@@ -640,7 +680,11 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
   admin.get('/store-qr', async (req, res) => {
     const s = await getSettings(db);
     const url = (s.site_url || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '') + '/';
-    res.json({ url, qr: await QRCode.toDataURL(url, { margin: 1, width: 600, errorCorrectionLevel: 'M' }) });
+    const storeUrl = `${url}?at=store`;
+    res.json({
+      url, qr: await QRCode.toDataURL(url, { margin: 1, width: 600, errorCorrectionLevel: 'M' }),
+      storeUrl, storeQr: await QRCode.toDataURL(storeUrl, { margin: 1, width: 600, errorCorrectionLevel: 'M' }),
+    });
   });
 
   /* ===== static (local/VPS; on Vercel the CDN serves /public directly) ===== */

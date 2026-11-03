@@ -1,5 +1,15 @@
 /* Shared helpers for every page. */
 const CART_KEY = 'cc_cart_v1';
+/** "In the shop" mode, from the in-store QR (?at=store). Remembered for this browser tab session. */
+const AT_STORE = (() => {
+  try {
+    const p = new URLSearchParams(location.search).get('at');
+    if (p === 'store') sessionStorage.setItem('cc_at', 'store');
+    if (p === 'online') sessionStorage.removeItem('cc_at');
+    return sessionStorage.getItem('cc_at') === 'store';
+  } catch { return new URLSearchParams(location.search).get('at') === 'store'; }
+})();
+const catalogUrl = () => (AT_STORE ? '/api/catalog?at=store' : '/api/catalog');
 const COUPON_KEY = 'cc_coupon_v1';
 
 const $ = (sel, root = document) => root.querySelector(sel);

@@ -75,6 +75,12 @@ With **Settings → Stock → Online shop can also sell offline-store stock** sw
 
 At checkout customers choose **Pickup at store** or **Home delivery**. For delivery they must give their name, a 10-digit mobile number and their address (landmark and pincode are optional). The phone remembers these for next time. Settings → **Home delivery** lets you switch it on or off, set a delivery charge, make delivery free above an order value, and show a note (e.g. "We deliver within 5 km"). Delivery bills show a 🚚 tag in **Bills**, with the address, a call link and an *Open in Maps* link. The CSV export includes the address.
 
+## Selling at the shop
+
+- **🧾 New bill (admin)** is the counter screen for the store manager. Search by name or rate-card number (e.g. `14`, then Enter adds it), tap items, then **Paid cash**, **Paid UPI**, or **Show UPI QR (pay later)**. Counter bills take **Store** stock first, then Online, and are tagged 🧾 Counter.
+- **In-store QR** (Store QR tab, second poster) opens the shop in "in the shop" mode: no delivery option, and bills are tagged 🏪 In store and take Store stock first. The normal QR / link stays online-first.
+- **Bills** can be filtered to *Shop only*, the dashboard splits today's sales into online and shop, and the CSV export has a *Sold* column.
+
 ## Payments: UPI or cash
 
 At checkout customers choose **UPI** or **Cash** (at the counter for pickup, on delivery for home delivery). Switch cash off in Settings → Payment.

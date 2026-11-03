@@ -6,7 +6,7 @@
   const CUSTOMER_KEY = 'cc_customer_v1'; // remembers name/phone/address on this phone for next time
   let fulfilment = 'pickup';
   let payment = 'upi';
-  const deliveryOn = () => catalog && catalog.settings.delivery_enabled === '1';
+  const deliveryOn = () => catalog && catalog.settings.delivery_enabled === '1' && !AT_STORE;
 
   const COUPON_MSG = {
     applied: ['ok', 'Coupon applied!'],
@@ -18,7 +18,7 @@
 
   async function init() {
     try {
-      catalog = await api('/api/catalog');
+      catalog = await api(catalogUrl());
     } catch {
       $('#lines').innerHTML = '<div class="empty">Could not load. Please check your connection and refresh.</div>';
       $('#checkout').classList.remove('hidden');
@@ -47,7 +47,7 @@
       if (saved.payment === 'cash') { payment = 'cash'; $('input[name=pay][value=cash]').checked = true; }
       applyPaymentUi();
     }
-    if (!deliveryOn()) return;
+    if (!deliveryOn() || AT_STORE) return;
     const s = catalog.settings;
     const charge = Math.round((Number(s.delivery_charge) || 0) * 100);
     const freeAbove = Math.round((Number(s.delivery_free_above) || 0) * 100);
@@ -109,7 +109,7 @@
     $('#empty').classList.add('hidden');
     $('#checkout').classList.remove('hidden');
     try {
-      lastQuote = await api('/api/quote', { method: 'POST', body: { items: lines, coupon, fulfilment } });
+      lastQuote = await api('/api/quote', { method: 'POST', body: { items: lines, coupon, fulfilment, channel: AT_STORE ? 'store' : 'online' } });
     } catch (e) {
       toast(e.message, true);
       return;
@@ -201,7 +201,7 @@
       deliveryAddress: $('#delAddress').value.trim(), deliveryLandmark: $('#delLandmark').value.trim(), deliveryPincode: $('#delPincode').value.trim(),
     };
     try {
-      const res = await api('/api/orders', { method: 'POST', body: { items: Cart.lines(), coupon, fulfilment, payment, ...details } });
+      const res = await api('/api/orders', { method: 'POST', body: { items: Cart.lines(), coupon, fulfilment, payment, channel: AT_STORE ? 'store' : 'online', ...details } });
       safeSet(CUSTOMER_KEY, { name: details.customerName, phone: details.customerPhone, address: details.deliveryAddress,
         landmark: details.deliveryLandmark, pincode: details.deliveryPincode, fulfilment, payment });
       Cart.clear();
@@ -209,7 +209,7 @@
     } catch (e) {
       toast(e.message, true);
       // Stock may have changed under us; re-quote so the customer sees what to fix.
-      catalog = await api('/api/catalog').catch(() => catalog);
+      catalog = await api(catalogUrl()).catch(() => catalog);
       byId = new Map(catalog.items.map((i) => [i.id, i]));
       refresh();
     }
