@@ -82,7 +82,7 @@ function upiUri(settings, order) {
 
 /* ---------- app ---------- */
 
-function createApp(db, { dbUrl = '' } = {}) {
+function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', true);
@@ -505,10 +505,12 @@ function createApp(db, { dbUrl = '' } = {}) {
     if (!dbUrl.startsWith('file:')) {
       try { where = new URL(dbUrl.replace(/^libsql:/, 'https:')).host; } catch { where = 'Hosted database'; }
     }
+    // Databases named "dpl-..." are created per deployment by the Vercel integration and get replaced on the next deploy.
+    const perDeployment = /^dpl-/i.test(where);
     const c = await db.get(`SELECT (SELECT COUNT(*) FROM items) AS items, (SELECT COUNT(*) FROM categories) AS categories,
       (SELECT COUNT(*) FROM discounts) AS offers, (SELECT COUNT(*) FROM orders) AS bills, (SELECT COUNT(*) FROM images) AS photos,
       (SELECT COUNT(*) FROM backups) AS snapshots, (SELECT MAX(created_at) FROM backups) AS lastSnapshot`);
-    res.json({ where, counts: c });
+    res.json({ where, source: dbSource, perDeployment, counts: c });
   });
 
   // Full download of the shop's data (everything except login secrets).

@@ -60,6 +60,7 @@
     await loadCategories();
     const s = await api('/api/admin/settings');
     $('#upiWarn').classList.toggle('hidden', !!s.upi_id);
+    api('/api/admin/db-info').then((d) => $('#dbWarn').classList.toggle('hidden', !d.perDeployment)).catch(() => {});
     const initial = (location.hash || '').slice(1);
     showTab($(`[data-tab="${initial}"]`) ? initial : 'dashboard');
   }
@@ -526,7 +527,8 @@
     try {
       const d = await api('/api/admin/db-info');
       const c = d.counts;
-      $('#dbInfo').innerHTML = `<div>Database: <b>${esc(d.where)}</b></div>
+      $('#dbInfo').innerHTML = `${d.perDeployment ? `<div class="banner danger" style="margin-top:0">This database was created for one deployment only. The next deployment will switch to a new, empty one. Set <b>SHOP_DATABASE_URL</b> and <b>SHOP_DATABASE_AUTH_TOKEN</b> in Vercel to your permanent database.</div>` : ''}
+        <div>Database: <b>${esc(d.where)}</b> <span class="muted">(from ${esc(d.source)})</span></div>
         <div class="muted">${c.items} items · ${c.categories} categories · ${c.offers} offers · ${c.bills} bills · ${c.photos} photos</div>`;
     } catch (e) { $('#dbInfo').textContent = e.message; }
     loadSnapshots();

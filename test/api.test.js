@@ -262,3 +262,21 @@ test('automatic snapshots: before upgrade, before deletes, daily, and downloadab
   const snap = (await call('GET', `/api/admin/backups/${list[0].id}.json`)).data;
   assert.ok(snap.items.some((i) => i.id === items[0].id)); // the deleted item is in the snapshot
 });
+
+test('a fixed SHOP_DATABASE_URL always wins over the per-deployment integration variables', () => {
+  const { dbConfig } = require('../src/boot');
+  const keep = { ...process.env };
+  try {
+    Object.assign(process.env, {
+      cc_TURSO_DATABASE_URL: 'libsql://dpl-new-empty.turso.io', cc_TURSO_AUTH_TOKEN: 'integration-token',
+      SHOP_DATABASE_URL: 'libsql://crackers-shop.turso.io', SHOP_DATABASE_AUTH_TOKEN: 'shop-token',
+    });
+    assert.deepEqual(dbConfig(), { url: 'libsql://crackers-shop.turso.io', authToken: 'shop-token', source: 'SHOP_DATABASE_URL' });
+    delete process.env.SHOP_DATABASE_URL;
+    assert.equal(dbConfig().source, 'cc_TURSO_DATABASE_URL');
+    assert.equal(dbConfig().authToken, 'integration-token'); // never mixes a URL with another pair's token
+  } finally {
+    for (const k of Object.keys(process.env)) if (!(k in keep)) delete process.env[k];
+    Object.assign(process.env, keep);
+  }
+});
