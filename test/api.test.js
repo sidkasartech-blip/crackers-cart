@@ -633,3 +633,50 @@ test('order alerts: Telegram message per customer order, token kept secret, fail
   assert.equal((await call('GET', '/api/catalog')).data.settings.phone, '98765 43210');
   assert.equal((await call('PUT', '/api/admin/settings', { whatsapp: 'abc' })).status, 400);
 });
+
+test('editable discount: counter override and changing an unpaid bill (₹4,366 at 10% → 15%)', async (t) => {
+  const { call, close } = await setup();
+  t.after(close);
+  await call('POST', '/api/admin/login', { password: 'admin123' });
+  await call('PUT', '/api/admin/settings', { upi_id: 'shop@okaxis' });
+  // Sample offers include 10% above ₹3,000.
+  const item = (await call('POST', '/api/admin/items', { name: 'Big Pack', price: '4366', stock: 10, storeStock: 10 })).data;
+  const items = [{ itemId: item.id, qty: 1 }];
+
+  // Counter: automatic 10%, then 15% by hand, then ₹500 off.
+  let q = (await call('POST', '/api/admin/counter/quote', { items })).data;
+  assert.equal(q.discount, 43660);
+  q = (await call('POST', '/api/admin/counter/quote', { items, discountOverride: { type: 'percent', value: 15 } })).data;
+  assert.equal(q.discount, 65490);
+  assert.equal(q.discountLabel, 'Special discount (15%)');
+  assert.equal(q.total, 371100); // 4366 − 654.90 = 3711.10 → ₹3,711
+  assert.equal(q.autoDiscount, 43660);
+  q = (await call('POST', '/api/admin/counter/quote', { items, discountOverride: { type: 'flat', value: 50000 } })).data;
+  assert.equal(q.total, 386600);
+  assert.equal((await call('POST', '/api/admin/counter/quote', { items, discountOverride: { type: 'percent', value: 120 } })).status, 400);
+  const c = (await call('POST', '/api/admin/counter/bills', { items, discountOverride: { type: 'percent', value: 15 }, paidBy: 'cash' })).data;
+  assert.equal(c.total, 371100);
+
+  // Customers can't set their own discount.
+  const o = (await call('POST', '/api/orders', { items, discountOverride: { type: 'percent', value: 90 } })).data;
+  const bill = async () => (await call('GET', `/api/orders/${o.id}?t=${o.token}`)).data;
+  assert.equal((await bill()).discount, 43660);
+  assert.equal((await bill()).total, 392900);
+
+  // Shop changes the unpaid bill to 15%: total and UPI amount follow; the customer's page sees the new total.
+  const upd = await call('PATCH', `/api/admin/orders/${o.id}/discount`, { type: 'percent', value: 15 });
+  assert.equal(upd.status, 200);
+  assert.equal(upd.data.total, 371100);
+  assert.equal(upd.data.discountLabel, 'Special discount (15%)');
+  assert.match(upd.data.upiUri, /am=3711\.00/);
+  assert.equal((await call('GET', `/api/orders/${o.id}/status?t=${o.token}`)).data.total, 371100);
+  // ₹ off and no discount also work.
+  assert.equal((await call('PATCH', `/api/admin/orders/${o.id}/discount`, { type: 'flat', value: 36600 })).data.total, 400000);
+  assert.equal((await call('PATCH', `/api/admin/orders/${o.id}/discount`, { type: 'none' })).data.total, 436600);
+
+  // Paid bills can't be changed (mark unpaid first).
+  await call('PATCH', `/api/admin/orders/${o.id}`, { status: 'paid', paidBy: 'upi' });
+  const paid = await call('PATCH', `/api/admin/orders/${o.id}/discount`, { type: 'percent', value: 15 });
+  assert.equal(paid.status, 400);
+  assert.match(paid.data.error, /already paid/);
+});

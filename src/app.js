@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const express = require('express');
 const QRCode = require('qrcode');
 const { getSettings } = require('./db');
-const { computeBill } = require('./pricing');
+const { computeBill, specialDiscount, totalsFor } = require('./pricing');
 const auth = require('./auth');
 const { telegram, notifyNewOrder } = require('./notify');
 const backups = require('./backup');
@@ -161,6 +161,15 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
     if (!Number.isFinite(n) || n < 0 || n > 1e9) throw bad(`${field} must be 0 or more`);
     return n;
   };
+  /** { type: 'percent' | 'flat', value } from the admin screens; flat value in paise. null = use the automatic offer. */
+  const readDiscountOverride = (o) => {
+    if (!o || o.value === '' || o.value == null) return null;
+    const type = o.type === 'flat' ? 'flat' : 'percent';
+    const value = Number(o.value);
+    if (!Number.isFinite(value) || value < 0) throw bad('Discount must be 0 or more');
+    if (type === 'percent' && value > 100) throw bad('Discount can be at most 100%');
+    return { type, value };
+  };
   const quote = async (body, settings, q = db, channel = channelOf(body.channel)) => {
     const ctx = await loadPricingContext(q);
     ctx.items = new Map([...ctx.items].map(([id, r]) => [id, { ...r, stock: sellable(r, settings, channel) }]));
@@ -180,6 +189,8 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
       coupon: body.coupon,
       taxPercent: Number(settings.tax_percent) || 0,
       delivery: zone ? { charge: zone.charge, freeAbove: Math.round((Number(settings.delivery_free_above) || 0) * 100) } : null,
+      // Counter only (staff): a discount set by hand instead of the automatic offer.
+      discountOverride: counter ? readDiscountOverride(body.discountOverride) : null,
     });
     // Why home delivery can't go ahead yet (shown at checkout; refused when placing the order).
     bill.deliveryProblem = '';
@@ -353,10 +364,10 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
 
   // Lightweight status poll so the bill page can flip to "Paid" when the admin confirms.
   app.get('/api/orders/:id/status', async (req, res) => {
-    const order = await db.get('SELECT token, status, paid_by FROM orders WHERE id = ?', [Number(req.params.id)]);
+    const order = await db.get('SELECT token, status, paid_by, total FROM orders WHERE id = ?', [Number(req.params.id)]);
     if (!order || order.token !== req.query.t) throw new HttpError(404, 'Bill not found');
     res.set('Cache-Control', 'no-store');
-    res.json({ status: order.status, paidBy: order.paid_by || '' });
+    res.json({ status: order.status, paidBy: order.paid_by || '', total: order.total });
   });
 
   // Product photos (stored in the database). Ids are random and never reused, so they cache forever.
@@ -398,6 +409,31 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
   admin.get('/dashboard', async (req, res, next) => { await backups.ensureDaily(db).catch((e) => console.error('daily backup failed', e)); next(); });
   const snapshotBefore = (label) => async (req, res, next) => { await backups.snapshot(db, label(req)); next(); };
   app.use('/api/admin', admin);
+
+  /* ----- change the discount on an unpaid bill ----- */
+  // body: { type: 'percent' | 'flat', value } (flat in paise), or { type: 'auto' } to go back to what the bill had from offers.
+  admin.patch('/orders/:id/discount', async (req, res) => {
+    const id = Number(req.params.id);
+    const b = req.body || {};
+    await db.tx(async (t) => {
+      const o = await t.get('SELECT * FROM orders WHERE id = ?', [id]);
+      if (!o) throw new HttpError(404, 'Bill not found');
+      if (o.status !== 'pending') throw bad(o.status === 'paid' ? 'This bill is already paid. Mark it unpaid first to change the discount.' : 'This bill is cancelled.');
+      let discount = 0;
+      let label = '';
+      if (b.type === 'none') { discount = 0; label = ''; } else {
+        const special = specialDiscount(readDiscountOverride(b), o.subtotal);
+        if (!special) throw bad('Enter the discount');
+        discount = special.amount; label = special.label;
+      }
+      const { tax, roundOff, total } = totalsFor({ subtotal: o.subtotal, discount, taxPercent: o.tax_percent, deliveryCharge: o.delivery_charge || 0 });
+      // An earlier 'agreed final amount' no longer applies once the discount is changed.
+      await t.run('UPDATE orders SET discount = ?, discount_label = ?, tax = ?, round_off = ?, total = ?, adjustment = 0 WHERE id = ?',
+        [discount, label, tax, roundOff, total, id]);
+    });
+    const o = await db.get('SELECT * FROM orders WHERE id = ?', [id]);
+    res.json(await orderOut(o, await getSettings(db)));
+  });
 
   /* ----- order alerts ----- */
   // New customer orders (not counter bills) after a given bill id; used by the admin panel's live alerts.

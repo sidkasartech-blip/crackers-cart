@@ -147,7 +147,8 @@
     pollTimer = setInterval(async () => {
       if (document.hidden) return;
       try {
-        const { status, paidBy } = await api(`/api/orders/${encodeURIComponent(id)}/status?t=${encodeURIComponent(t)}`);
+        const { status, paidBy, total } = await api(`/api/orders/${encodeURIComponent(id)}/status?t=${encodeURIComponent(t)}`);
+        if (total !== order.total) { load(); toast('Your bill was updated by the shop'); return; }
         if (status !== order.status) {
           order.status = status; order.paidBy = paidBy;
           render(order);

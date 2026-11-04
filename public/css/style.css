@@ -323,6 +323,10 @@ dialog.sheet[open] { display: flex; animation: sheet-up .28s cubic-bezier(.2,.9,
 .ctr-rate.changed input { border-color: var(--brand); background: var(--brand-soft); color: var(--text); }
 .ctr-rate s { font-weight: 600; }
 .ctr-final { margin-top: 10px; }
+.ctr-disc, .edit-disc { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.ctr-disc select, .edit-disc select { width: auto; min-height: 40px; padding: 6px 10px; }
+.ctr-disc .input.num, .edit-disc .input.num { width: 96px; min-height: 40px; padding: 6px 10px; }
+.edit-disc { padding: 10px 12px; border-radius: 12px; background: var(--surface-2); margin-top: 12px; }
 .contact-box { text-align: center; padding: 14px 18px; border-top: 1px dashed var(--line); }
 .contact-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
 .btn.wa { background: #25d366; border-color: #25d366; color: #fff; }

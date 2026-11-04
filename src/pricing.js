@@ -43,7 +43,31 @@ function describeDiscount(d, categoryName) {
  * @param {string} [p.coupon]
  * @param {Date} [p.now]
  */
-function computeBill({ cart, items, discounts, categoryNames = new Map(), taxPercent = 0, coupon = '', now = new Date(), delivery = null }) {
+/**
+ * A discount the shop sets by hand (counter or editing an unpaid bill): replaces the automatic offer.
+ * override: { type: 'percent' | 'flat', value } (flat in paise). Returns { amount, label } or null.
+ */
+function specialDiscount(override, subtotal) {
+  if (!override) return null;
+  const v = Number(override.value);
+  if (!Number.isFinite(v) || v < 0) return null;
+  if (override.type === 'percent') {
+    const pct = Math.min(100, v);
+    return { amount: Math.round((subtotal * pct) / 100), label: `Special discount (${+pct.toFixed(2)}%)` };
+  }
+  return { amount: Math.min(Math.round(v), subtotal), label: 'Special discount' };
+}
+
+/** Tax, rounding and total for a given items total, discount and delivery charge (all paise). */
+function totalsFor({ subtotal, discount, taxPercent = 0, deliveryCharge = 0 }) {
+  const taxable = subtotal - discount;
+  const tax = Math.round((taxable * (Number(taxPercent) || 0)) / 100);
+  const raw = taxable + tax + deliveryCharge;
+  const total = Math.round(raw / 100) * 100;
+  return { tax, roundOff: total - raw, total };
+}
+
+function computeBill({ cart, items, discounts, categoryNames = new Map(), taxPercent = 0, coupon = '', now = new Date(), delivery = null, discountOverride = null }) {
   const errors = [];
   const lines = [];
   const merged = new Map();
@@ -114,32 +138,35 @@ function computeBill({ cart, items, discounts, categoryNames = new Map(), taxPer
     }
   }
 
-  const discount = best ? best.amount : 0;
-  const taxable = subtotal - discount;
-  const tax = Math.round((taxable * (Number(taxPercent) || 0)) / 100);
+  const special = specialDiscount(discountOverride, subtotal);
+  const offerAmount = best ? best.amount : 0;
+  const discount = special ? special.amount : offerAmount;
   // Home delivery: flat charge, free once the items total reaches freeAbove (if set).
   const freeAbove = delivery && delivery.freeAbove > 0 ? delivery.freeAbove : 0;
   const deliveryCharge = delivery ? (freeAbove && subtotal >= freeAbove ? 0 : Math.max(0, delivery.charge || 0)) : 0;
-  const raw = taxable + tax + deliveryCharge;
-  const total = Math.round(raw / 100) * 100;
+  const { tax, roundOff, total } = totalsFor({ subtotal, discount, taxPercent, deliveryCharge });
 
   return {
     lines,
     errors,
     subtotal,
     discount,
-    discountLabel: best ? describeDiscount(best.d, categoryNames.get(best.d.category_id)) : '',
-    discountId: best ? best.d.id : null,
+    discountLabel: special ? special.label : best ? describeDiscount(best.d, categoryNames.get(best.d.category_id)) : '',
+    discountId: special ? null : best ? best.d.id : null,
+    special: !!special,
+    // What the automatic offer would have given (so staff can see it while setting their own).
+    autoDiscount: offerAmount,
+    autoDiscountLabel: best ? describeDiscount(best.d, categoryNames.get(best.d.category_id)) : '',
     couponStatus,
     taxPercent: Number(taxPercent) || 0,
     tax,
     delivery: !!delivery,
     deliveryCharge,
     freeDeliveryAddMore: delivery && freeAbove && deliveryCharge > 0 ? freeAbove - subtotal : 0,
-    roundOff: total - raw,
+    roundOff,
     total,
     nextOffer,
   };
 }
 
-module.exports = { computeBill, isLive, describeDiscount };
+module.exports = { computeBill, isLive, describeDiscount, specialDiscount, totalsFor };

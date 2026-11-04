@@ -283,6 +283,15 @@
           <div class="card pad ctr-bill">
             <div class="card-title">Bill</div>
             <div id="ctrLines"></div>
+            <div class="ctr-disc">
+              <span class="small" style="font-weight:700">Discount</span>
+              <select class="input" id="ctrDiscType" aria-label="Discount type">
+                <option value="auto">Automatic offer</option>
+                <option value="percent">% off</option>
+                <option value="flat">₹ off</option>
+              </select>
+              <input class="input num hidden" id="ctrDiscVal" type="number" inputmode="decimal" min="0" step="any" placeholder="e.g. 15" aria-label="Discount value">
+            </div>
             <table class="totals" id="ctrTotals"></table>
             <label class="field ctr-final"><span>Final amount agreed with customer (optional)</span>
               <input class="input num" id="ctrFinal" type="number" inputmode="decimal" min="0" step="1" placeholder="Leave empty to use the total above"></label>

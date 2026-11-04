@@ -529,6 +529,29 @@
         ${o.adjustment ? `<tr class="${o.adjustment < 0 ? 'disc' : ''}"><td>Price adjustment</td><td>${o.adjustment < 0 ? '−' : '+'}${money(Math.abs(o.adjustment))}</td></tr>` : ''}
         <tr class="grand"><td>Total</td><td>${money(o.total)}</td></tr>
       </table>`;
+    if (o.status === 'pending') {
+      $('#orderDlgBody').insertAdjacentHTML('beforeend', `<div class="edit-disc">
+        <span class="small" style="font-weight:700">Change discount</span>
+        <select class="input" id="edDiscType"><option value="percent">% off</option><option value="flat">₹ off</option><option value="none">No discount</option></select>
+        <input class="input num" id="edDiscVal" type="number" inputmode="decimal" min="0" step="any" placeholder="e.g. 15">
+        <button type="button" class="btn btn-sm btn-primary" id="edDiscSave">Apply</button>
+      </div>`);
+      $('#edDiscType').onchange = () => { $('#edDiscVal').classList.toggle('hidden', $('#edDiscType').value === 'none'); };
+      $('#edDiscSave').onclick = async () => {
+        const type = $('#edDiscType').value;
+        const v = $('#edDiscVal').value.trim();
+        if (type !== 'none' && !(Number(v) >= 0 && v !== '')) { toast('Enter the discount', true); return; }
+        try {
+          const upd = await api(`/api/admin/orders/${o.id}/discount`, {
+            method: 'PATCH', body: type === 'none' ? { type } : { type, value: type === 'flat' ? Math.round(Number(v) * 100) : Number(v) },
+          });
+          toast(`Bill ${upd.billNo} now ${money(upd.total)}`);
+          $('#orderDlg').close();
+          await openOrder(o.id);
+          loadOrders();
+        } catch (err) { toast(err.message, true); }
+      };
+    }
     const btns = [];
     if (o.status !== 'paid') btns.push('<button type="button" class="btn btn-primary" data-s="paid" data-by="upi">Paid by UPI</button>', '<button type="button" class="btn btn-primary" data-s="paid" data-by="cash">Paid in cash</button>');
     if (o.status === 'paid') btns.push('<button type="button" class="btn" data-s="pending">Mark unpaid</button>');
@@ -760,7 +783,14 @@
 
   /* ---------- counter billing ---------- */
   const CTR_KEY = 'cc_counter_v1';
-  const ctr = { items: [], byId: new Map(), lines: safeGet(CTR_KEY, []) || [], quote: null, busy: false, finalTotal: null };
+  const ctr = { items: [], byId: new Map(), lines: safeGet(CTR_KEY, []) || [], quote: null, busy: false, finalTotal: null, disc: null };
+  // Discount set by hand on a counter bill: { type: 'percent' | 'flat', value } (flat in paise) or null = automatic offer.
+  const ctrDisc = () => {
+    const type = $('#ctrDiscType').value;
+    const v = $('#ctrDiscVal').value.trim();
+    if (type === 'auto' || v === '' || !(Number(v) >= 0)) return null;
+    return { type, value: type === 'flat' ? Math.round(Number(v) * 100) : Number(v) };
+  };
   const ctrSave = () => safeSet(CTR_KEY, ctr.lines);
   async function loadCounter() {
     ctr.items = (await api('/api/admin/items')).filter((i) => i.active || i.totalStock > 0);
@@ -810,13 +840,14 @@
       </div>`;
     }).join('');
     try {
-      ctr.quote = await api('/api/admin/counter/quote', { method: 'POST', body: { items: ctr.lines, finalTotal: ctr.finalTotal } });
+      ctr.quote = await api('/api/admin/counter/quote', { method: 'POST', body: { items: ctr.lines, finalTotal: ctr.finalTotal, discountOverride: ctrDisc() } });
     } catch (e) { toast(e.message, true); return; }
     const q = ctr.quote;
     const rows = [];
     if (q.listSubtotal !== q.subtotal) rows.push(`<tr><td class="muted">At list rates</td><td class="muted">${money(q.listSubtotal)}</td></tr>`);
     rows.push(`<tr><td>Items total</td><td>${money(q.subtotal)}</td></tr>`);
     if (q.discount) rows.push(`<tr class="disc"><td>${esc(q.discountLabel)}</td><td>−${money(q.discount)}</td></tr>`);
+    if (q.special && q.autoDiscount) rows.push(`<tr><td colspan="2" class="small muted">Automatic offer would be ${esc(q.autoDiscountLabel)}: −${money(q.autoDiscount)}</td></tr>`);
     if (q.tax) rows.push(`<tr><td>Tax (${q.taxPercent}%)</td><td>${money(q.tax)}</td></tr>`);
     if (q.roundOff) rows.push(`<tr><td class="muted">Round off</td><td class="muted">${q.roundOff > 0 ? '+' : '−'}${money(Math.abs(q.roundOff))}</td></tr>`);
     if (q.adjustment) rows.push(`<tr class="${q.adjustment < 0 ? 'disc' : ''}"><td>Agreed amount</td><td>${q.adjustment < 0 ? '−' : '+'}${money(Math.abs(q.adjustment))}</td></tr>`);
@@ -854,7 +885,7 @@
   $('#ctrClear').addEventListener('click', () => {
     if (ctr.lines.length && !confirm('Clear this bill?')) return;
     ctr.lines = []; $('#ctrName').value = ''; $('#ctrPhone').value = '';
-    ctr.finalTotal = null; $('#ctrFinal').value = '';
+    ctr.finalTotal = null; $('#ctrFinal').value = ''; resetCtrDisc();
     renderCtrBill();
   });
   // Agreed rate for one line (empty = back to the list rate).
@@ -873,6 +904,18 @@
     }
     renderCtrBill();
   });
+  // Discount by hand: % or ₹ instead of the automatic offer.
+  $('#ctrDiscType').addEventListener('change', () => {
+    const type = $('#ctrDiscType').value;
+    $('#ctrDiscVal').classList.toggle('hidden', type === 'auto');
+    $('#ctrDiscVal').placeholder = type === 'flat' ? 'e.g. 500' : 'e.g. 15';
+    if (type !== 'auto') $('#ctrDiscVal').focus();
+    renderCtrBill();
+  });
+  let discTimer;
+  $('#ctrDiscVal').addEventListener('input', () => { clearTimeout(discTimer); discTimer = setTimeout(renderCtrBill, 300); });
+  const resetCtrDisc = () => { $('#ctrDiscType').value = 'auto'; $('#ctrDiscVal').value = ''; $('#ctrDiscVal').classList.add('hidden'); };
+
   // Agreed final amount for the whole bill (empty = use the calculated total).
   $('#ctrFinal').addEventListener('change', () => {
     const v = $('#ctrFinal').value.trim();
@@ -891,13 +934,13 @@
     try {
       const r = await api('/api/admin/counter/bills', {
         method: 'POST',
-        body: { items: ctr.lines, finalTotal: ctr.finalTotal, customerName: $('#ctrName').value, customerPhone: $('#ctrPhone').value, paidBy: pay === 'qr' ? undefined : pay },
+        body: { items: ctr.lines, finalTotal: ctr.finalTotal, discountOverride: ctrDisc(), customerName: $('#ctrName').value, customerPhone: $('#ctrPhone').value, paidBy: pay === 'qr' ? undefined : pay },
       });
       const url = `/bill?id=${r.id}&t=${r.token}`;
       if (win) win.location = url;
       toast(pay === 'qr' ? `Bill ${r.billNo} created: customer can scan the QR` : `Bill ${r.billNo} · ${money(r.total)} paid by ${pay === 'cash' ? 'cash' : 'UPI'}`);
       ctr.lines = []; $('#ctrName').value = ''; $('#ctrPhone').value = '';
-      ctr.finalTotal = null; $('#ctrFinal').value = '';
+      ctr.finalTotal = null; $('#ctrFinal').value = ''; resetCtrDisc(); resetCtrDisc();
       await loadCounter();
       $('#ctrSearch').value = ''; renderCtrResults();
     } catch (err) {
