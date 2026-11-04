@@ -87,7 +87,7 @@
         ${o.fulfilment !== 'delivery' && (o.customerName || o.customerPhone) ? `<div style="flex-basis:100%"><span class="muted">Customer:</span> ${esc(o.customerName)} ${esc(o.customerPhone)}</div>` : ''}
       </div>
       ${o.fulfilment === 'delivery' ? `<div class="deliver-box"><b>🚚 Home delivery</b>${esc(o.customerName)}${o.customerPhone ? ` · ${esc(o.customerPhone)}` : ''}<br>
-        ${esc(o.deliveryAddress)}${o.deliveryLandmark ? `<br><span class="muted">Landmark:</span> ${esc(o.deliveryLandmark)}` : ''}${o.deliveryPincode ? `<br><span class="muted">Pincode:</span> ${esc(o.deliveryPincode)}` : ''}</div>`
+        ${esc(o.deliveryAddress)}${o.deliveryKm != null ? ` <span class="muted">(about ${o.deliveryKm} km)</span>` : ''}${o.deliveryLandmark ? `<br><span class="muted">Landmark:</span> ${esc(o.deliveryLandmark)}` : ''}${o.deliveryPincode ? `<br><span class="muted">Pincode:</span> ${esc(o.deliveryPincode)}` : ''}</div>`
         : o.channel === 'counter' ? '<div class="deliver-box"><b>🧾 Bought at the shop counter</b></div>'
         : o.channel === 'store' ? '<div class="deliver-box"><b>🏪 Bought in the shop</b></div>'
         : (o.shop.delivery_enabled === '1' ? '<div class="deliver-box"><b>🏪 Pickup at store</b></div>' : '')}

@@ -507,3 +507,59 @@ test('counter: agreed rate per item and agreed final amount; customers cannot ch
   // Bad values are refused.
   assert.equal((await call('POST', '/api/admin/counter/quote', { items: [{ itemId: a.id, qty: 1, price: -5 }] })).status, 400);
 });
+
+test('delivery charged by distance from the shop, free from an amount, minimum order', async (t) => {
+  const { call, close } = await setup();
+  t.after(close);
+  await call('POST', '/api/admin/login', { password: 'admin123' });
+  const item = (await call('POST', '/api/admin/items', { name: 'Distance Box', price: '100', stock: 50 })).data;
+  const items = (qty) => [{ itemId: item.id, qty }];
+  const q = async (qty, at) => (await call('POST', '/api/quote', { items: items(qty), fulfilment: 'delivery', deliveryLat: at && at.lat, deliveryLng: at && at.lng })).data;
+  const order = (qty, at) => call('POST', '/api/orders', { items: items(qty), fulfilment: 'delivery', customerName: 'Ravi',
+    customerPhone: '9876543210', deliveryAddress: '12 Market Road, Pune', deliveryLat: at && at.lat, deliveryLng: at && at.lng });
+  const shop = { lat: 18.5204, lng: 73.8567 };
+  const north = (deg) => ({ lat: shop.lat + deg, lng: shop.lng }); // 0.009° ≈ 1 km straight line
+
+  // No shop location yet: flat charge for everyone, free from ₹1,200.
+  await call('PUT', '/api/admin/settings', { delivery_enabled: true, delivery_charge: '50', delivery_free_above: '1200' });
+  assert.equal((await q(2)).deliveryCharge, 5000);
+  assert.equal((await q(12)).deliveryCharge, 0);
+
+  // Bad settings are refused.
+  assert.equal((await call('PUT', '/api/admin/settings', { shop_lat: '200' })).status, 400);
+  assert.equal((await call('PUT', '/api/admin/settings', { delivery_slabs: JSON.stringify([{ km: 3, charge: 0 }, { km: 3, charge: 10 }]) })).status, 400);
+  assert.equal((await call('PUT', '/api/admin/settings', { delivery_slabs: JSON.stringify([{ km: -1, charge: 0 }]) })).status, 400);
+
+  // Shop location + bands: up to 3 km free, 6 km ₹40, 10 km ₹80; beyond = no delivery. Minimum ₹300 for delivery.
+  const saved = await call('PUT', '/api/admin/settings', {
+    shop_lat: String(shop.lat), shop_lng: String(shop.lng), delivery_min_order: '300',
+    delivery_slabs: JSON.stringify([{ km: 10, charge: 80 }, { km: 3, charge: 0 }, { km: 6, charge: 40 }]), // saved sorted
+  });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(JSON.parse((await call('GET', '/api/catalog')).data.settings.delivery_slabs).map((x) => x.km), [3, 6, 10]);
+
+  assert.ok((await q(3)).deliveryNeedsLocation);
+  const near = await q(3, north(0.0139)); // ~1.5 km straight → ~2 km road
+  assert.equal(near.deliveryCharge, 0);
+  assert.ok(near.deliveryKm >= 1.8 && near.deliveryKm <= 2.2, near.deliveryKm);
+  assert.equal((await q(3, north(0.0308))).deliveryCharge, 4000); // ~4.5 km
+  assert.equal((await q(3, north(0.0555))).deliveryCharge, 8000); // ~8 km
+  assert.equal((await q(12, north(0.0555))).deliveryCharge, 0);   // free from ₹1,200 still applies
+  assert.match((await q(3, north(0.1))).deliveryProblem, /within 10 km.*about 14\.\d km/);
+  assert.match((await q(2, north(0.0139))).deliveryProblem, /₹300 or more/);
+
+  // Orders follow the same rules and keep the pin.
+  assert.equal((await order(3)).status, 400);                 // no pin
+  assert.equal((await order(3, north(0.1))).status, 400);     // too far
+  assert.equal((await order(2, north(0.0139))).status, 400);  // below minimum
+  const ok = await order(3, north(0.0308));
+  assert.equal(ok.status, 201);
+  const bill = (await call('GET', `/api/orders/${ok.data.id}?t=${ok.data.token}`)).data;
+  assert.equal(bill.deliveryCharge, 4000);
+  assert.equal(bill.total, 34000);
+  assert.ok(Math.abs(bill.deliveryLat - north(0.0308).lat) < 1e-6);
+  assert.ok(bill.deliveryKm > 4 && bill.deliveryKm < 5);
+  assert.match((await call('GET', '/api/admin/orders.csv')).data, /"18\.5512,73\.8567"/);
+  // Pickup is unaffected.
+  assert.equal((await call('POST', '/api/orders', { items: items(1) })).status, 201);
+});

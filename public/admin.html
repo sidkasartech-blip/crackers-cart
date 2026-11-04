@@ -184,7 +184,23 @@
           <label class="check"><input type="checkbox" name="delivery_enabled"> Offer home delivery at checkout</label>
           <div class="row">
             <label class="field"><span>Delivery charge (₹, 0 = free)</span><input class="input" name="delivery_charge" type="number" min="0" step="1"></label>
-            <label class="field"><span>Free delivery above (₹, 0 = off)</span><input class="input" name="delivery_free_above" type="number" min="0" step="1"></label>
+            <label class="field"><span>Free delivery when order is at least (₹, 0 = off)</span><input class="input" name="delivery_free_above" type="number" min="0" step="1" placeholder="e.g. 1200"></label>
+            <label class="field"><span>Minimum order for delivery (₹, 0 = none)</span><input class="input" name="delivery_min_order" type="number" min="0" step="1"></label>
+          </div>
+          <div class="zones">
+            <div class="zones-head"><b>Charge by distance</b> <span class="muted small">(set the shop location to turn this on; without it everyone pays the delivery charge above)</span></div>
+            <label class="field"><span>Shop location</span>
+              <div class="row" style="gap:8px">
+                <input class="input" id="shopLoc" placeholder="Paste from Google Maps, e.g. 18.5204, 73.8567" style="flex:2 1 220px">
+                <button type="button" class="btn" id="shopLocHere" style="flex:0 0 auto">📍 Use my current location</button>
+              </div>
+              <small class="muted" id="shopLocMsg"></small></label>
+            <input type="hidden" name="shop_lat"><input type="hidden" name="shop_lng">
+            <div class="small muted" style="margin-bottom:6px">Delivery charge by distance (about road distance from the shop):</div>
+            <div id="slabRows"></div>
+            <button type="button" class="btn btn-sm" id="addSlab">+ Add distance</button>
+            <input type="hidden" name="delivery_slabs">
+            <p class="small muted" style="margin:10px 0 0">Beyond the last distance, home delivery isn't offered and the customer is asked to choose pickup. "Free delivery when order is at least" still applies.</p>
           </div>
           <label class="field"><span>Note shown to customers</span><input class="input" name="delivery_note" maxlength="200" placeholder="e.g. We deliver within 5 km, same day before 8 pm"></label>
 

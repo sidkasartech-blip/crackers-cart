@@ -73,7 +73,9 @@ With **Settings → Stock → Online shop can also sell offline-store stock** sw
 
 ## Home delivery
 
-At checkout customers choose **Pickup at store** or **Home delivery**. For delivery they must give their name, a 10-digit mobile number and their address (landmark and pincode are optional). The phone remembers these for next time. Settings → **Home delivery** lets you switch it on or off, set a delivery charge, make delivery free above an order value, and show a note (e.g. "We deliver within 5 km"). Delivery bills show a 🚚 tag in **Bills**, with the address, a call link and an *Open in Maps* link. The CSV export includes the address.
+At checkout customers choose **Pickup at store** or **Home delivery**. For delivery they must give their name, a 10-digit mobile number and their address (landmark and pincode are optional). The phone remembers these for next time. Settings → **Home delivery** lets you switch it on or off, set a delivery charge, make delivery free above an order value, and show a note (e.g. "We deliver within 5 km"). **Charge by distance** (optional): set the **shop location** (📍 *Use my current location* while at the shop, or paste coordinates / a Google Maps link) and the distance bands, e.g. up to 3 km ₹0, up to 6 km ₹40, up to 10 km ₹80. Customers then mark their delivery spot on a map at checkout (*Use my current location* or drag the pin); the app works out the distance and the charge, and beyond the last band asks them to choose pickup. Distance is the straight line × 1.3, which is close to the road distance in a city (exact road distance would need a paid Google Maps key). The pin is saved on the bill, so the delivery person can tap *Navigate to the customer's pin*. **Free delivery when order is at least ₹X** applies on top, and **Minimum order for delivery** blocks delivery for small orders. Without a shop location, everyone pays the flat delivery charge. Maps use the bundled Leaflet library (`public/vendor/leaflet`, BSD-2) and © OpenStreetMap tiles.
+
+Delivery bills show a 🚚 tag in **Bills**, with the address, a call link and an *Open in Maps* link. The CSV export includes the address.
 
 ## Selling at the shop
 

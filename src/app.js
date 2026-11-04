@@ -12,6 +12,7 @@ const PUBLIC_SETTING_KEYS = [
   'shop_name', 'tagline', 'phone', 'address', 'gstin', 'tax_percent', 'bill_footer',
   'min_order', 'shop_open', 'closed_message',
   'delivery_enabled', 'delivery_charge', 'delivery_free_above', 'delivery_note', 'cash_enabled',
+  'delivery_min_order', 'shop_lat', 'shop_lng', 'delivery_slabs',
 ];
 const EDITABLE_SETTING_KEYS = [...PUBLIC_SETTING_KEYS, 'online_sells_store_stock', 'upi_id', 'upi_name', 'bill_prefix', 'site_url'];
 
@@ -103,6 +104,48 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
   };
 
   const wantsDelivery = (body, settings) => body.fulfilment === 'delivery' && settings.delivery_enabled === '1';
+  const parseSlabs = (raw) => {
+    try {
+      const s = JSON.parse(raw || '[]');
+      return Array.isArray(s) ? s.filter((x) => x && Number(x.km) > 0).sort((a, b) => a.km - b.km) : [];
+    } catch { return []; }
+  };
+  const coord = (v, max) => {
+    const n = Number(v);
+    return v !== '' && v != null && Number.isFinite(n) && Math.abs(n) <= max ? n : null;
+  };
+  // Straight-line distance × 1.3 ≈ road distance in a city (no paid map service needed).
+  const ROAD_FACTOR = 1.3;
+  const kmBetween = (a, b) => {
+    const R = 6371;
+    const toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(b.lat - a.lat); const dLng = toRad(b.lng - a.lng);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h)) * ROAD_FACTOR;
+  };
+  /**
+   * Delivery charge. Without a shop location (or distance bands) everyone pays the flat delivery charge.
+   * With them: distance from the shop to the customer's map pin picks the band; beyond the last band = no delivery.
+   * Returns { charge (paise), problem (message or ''), km, lat, lng }.
+   */
+  const deliveryFor = (settings, latIn, lngIn) => {
+    const flat = Math.round((Number(settings.delivery_charge) || 0) * 100);
+    const shop = { lat: coord(settings.shop_lat, 90), lng: coord(settings.shop_lng, 180) };
+    const slabs = parseSlabs(settings.delivery_slabs);
+    if (shop.lat === null || shop.lng === null || !slabs.length) return { charge: flat, problem: '' };
+    const r6 = (v) => (v === null ? null : Math.round(v * 1e6) / 1e6); // ~10 cm; avoids long float tails
+    const lat = r6(coord(latIn, 90)); const lng = r6(coord(lngIn, 180));
+    if (lat === null || lng === null) {
+      return { charge: 0, problem: 'Mark your delivery location on the map to see the delivery charge.', needLocation: true };
+    }
+    const km = Math.round(kmBetween(shop, { lat, lng }) * 10) / 10;
+    const slab = slabs.find((s) => km <= Number(s.km));
+    if (!slab) {
+      const max = slabs[slabs.length - 1].km;
+      return { charge: 0, km, lat, lng, problem: `Sorry, we deliver within ${max} km. Your location is about ${km} km away. Please choose pickup at store.` };
+    }
+    return { charge: Math.round((Number(slab.charge) || 0) * 100), problem: '', km, lat, lng };
+  };
   // What the online shop can sell: online stock, plus offline-store stock when that setting is on.
   const sharesStore = (settings) => settings.online_sells_store_stock === '1';
   // In the shop (in-store QR or counter) everything on hand can be sold, whatever the online setting.
@@ -127,15 +170,27 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
         if (r && p !== null && p !== r.price) ctx.items.set(r.id, { ...r, list_price: r.price, price: p });
       }
     }
+    const zone = wantsDelivery(body, settings) ? deliveryFor(settings, body.deliveryLat, body.deliveryLng) : null;
     const bill = computeBill({
       ...ctx,
       cart: body.items,
       coupon: body.coupon,
       taxPercent: Number(settings.tax_percent) || 0,
-      delivery: wantsDelivery(body, settings)
-        ? { charge: Math.round((Number(settings.delivery_charge) || 0) * 100), freeAbove: Math.round((Number(settings.delivery_free_above) || 0) * 100) }
-        : null,
+      delivery: zone ? { charge: zone.charge, freeAbove: Math.round((Number(settings.delivery_free_above) || 0) * 100) } : null,
     });
+    // Why home delivery can't go ahead yet (shown at checkout; refused when placing the order).
+    bill.deliveryProblem = '';
+    if (zone) {
+      const minDelivery = Math.round((Number(settings.delivery_min_order) || 0) * 100);
+      if (zone.problem) bill.deliveryProblem = zone.problem;
+      else if (minDelivery && bill.subtotal < minDelivery) {
+        bill.deliveryProblem = `Home delivery is for orders of ₹${minDelivery / 100} or more. Add ₹${(minDelivery - bill.subtotal) / 100} more, or choose pickup at store.`;
+      }
+      bill.deliveryNeedsLocation = !!zone.needLocation;
+      bill.deliveryKm = zone.km ?? null;
+      bill.deliveryLat = zone.lat ?? null;
+      bill.deliveryLng = zone.lng ?? null;
+    }
     // Counter only: an agreed final amount; the difference is shown on the bill as an adjustment.
     const finalTotal = counter ? paiseOrNull(body.finalTotal, 'Final amount') : null;
     bill.adjustment = 0;
@@ -159,6 +214,7 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
       deliveryCharge: order.delivery_charge || 0,
       payPref: order.pay_pref || 'upi', paidBy: order.paid_by || '', channel: order.channel || 'online',
       adjustment: order.adjustment || 0,
+      deliveryLat: order.delivery_lat ?? null, deliveryLng: order.delivery_lng ?? null, deliveryKm: order.delivery_km ?? null,
     };
     if (withLines) {
       out.lines = (await db.all('SELECT item_id AS itemId, name, unit, price, qty, total, list_price FROM order_items WHERE order_id = ? ORDER BY id', [order.id]))
@@ -225,17 +281,19 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
       if (!bill.lines.length) throw bad(counter ? 'Add at least one item' : 'Your cart is empty');
       const minOrder = Number(settings.min_order) || 0;
       if (!counter && bill.subtotal < minOrder * 100) throw bad(`Minimum order is ₹${minOrder}`);
+      if (delivery && bill.deliveryProblem) throw bad(bill.deliveryProblem);
 
       const token = crypto.randomBytes(12).toString('hex');
       const info = await t.run(`INSERT INTO orders
         (token, bill_no, customer_name, customer_phone, subtotal, discount, discount_label, tax, tax_percent, round_off, total,
          fulfilment, delivery_address, delivery_landmark, delivery_pincode, delivery_charge, pay_pref, channel,
-         status, paid_by, adjustment, paid_at)
-        VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${paidBy ? "datetime('now')" : 'NULL'})`, [
+         status, paid_by, adjustment, delivery_lat, delivery_lng, delivery_km, paid_at)
+        VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${paidBy ? "datetime('now')" : 'NULL'})`, [
         token, name, phone,
         bill.subtotal, bill.discount, bill.discountLabel, bill.tax, bill.taxPercent, bill.roundOff, bill.total,
         delivery ? 'delivery' : 'pickup', delivery ? address : '', delivery ? landmark : '', delivery ? pincode : '', bill.deliveryCharge, payPref, channel,
         paidBy ? 'paid' : 'pending', paidBy || '', bill.adjustment || 0,
+        delivery ? bill.deliveryLat ?? null : null, delivery ? bill.deliveryLng ?? null : null, delivery ? bill.deliveryKm ?? null : null,
       ]);
       const id = info.lastInsertRowid;
       const billNo = `${settings.bill_prefix || ''}${String(id).padStart(5, '0')}`;
@@ -574,16 +632,16 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
 
   admin.get('/orders.csv', async (req, res) => {
     const rows = await db.all(`SELECT o.bill_no, datetime(o.created_at, ${LOCAL}) AS created, o.status, o.customer_name, o.customer_phone,
-      o.fulfilment, o.delivery_address, o.delivery_landmark, o.delivery_pincode, o.delivery_charge, o.pay_pref, o.paid_by, o.channel, o.adjustment,
+      o.fulfilment, o.delivery_address, o.delivery_landmark, o.delivery_pincode, o.delivery_charge, o.pay_pref, o.paid_by, o.channel, o.adjustment, o.delivery_km, o.delivery_lat, o.delivery_lng,
       oi.name, oi.qty, oi.price, oi.list_price, oi.total, o.discount, o.tax, o.total AS bill_total
       FROM orders o JOIN order_items oi ON oi.order_id = o.id ORDER BY o.id DESC, oi.id`);
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rupees = (p) => (p / 100).toFixed(2);
-    const lines = [['Bill', 'Date', 'Sold', 'Status', 'Paid by', 'Customer', 'Phone', 'Pickup/Delivery', 'Delivery address', 'Landmark', 'Pincode', 'Item', 'Qty', 'Rate', 'List rate', 'Line total',
+    const lines = [['Bill', 'Date', 'Sold', 'Status', 'Paid by', 'Customer', 'Phone', 'Pickup/Delivery', 'Delivery address', 'Landmark', 'Pincode', 'Distance km', 'Map pin', 'Item', 'Qty', 'Rate', 'List rate', 'Line total',
       'Bill discount', 'Bill tax', 'Delivery charge', 'Bill adjustment', 'Bill total'].map(esc).join(',')];
     for (const r of rows) {
       lines.push([r.bill_no, r.created, { online: 'Online', store: 'In store (self)', counter: 'Counter' }[r.channel] || 'Online', r.status, r.status === 'paid' ? (r.paid_by === 'cash' ? 'Cash' : 'UPI') : `(chose ${r.pay_pref === 'cash' ? 'cash' : 'UPI'})`, r.customer_name, r.customer_phone, r.fulfilment === 'delivery' ? 'Delivery' : 'Pickup',
-        r.delivery_address, r.delivery_landmark, r.delivery_pincode, r.name, r.qty, rupees(r.price), rupees(r.list_price || r.price), rupees(r.total),
+        r.delivery_address, r.delivery_landmark, r.delivery_pincode, r.delivery_km ?? '', r.delivery_lat != null ? `${r.delivery_lat},${r.delivery_lng}` : '', r.name, r.qty, rupees(r.price), rupees(r.list_price || r.price), rupees(r.total),
         rupees(r.discount), rupees(r.tax), rupees(r.delivery_charge || 0), rupees(r.adjustment || 0), rupees(r.bill_total)].map(esc).join(','));
     }
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -683,6 +741,22 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
     if (b.min_order !== undefined && !(Number(b.min_order) >= 0)) throw bad('Minimum order must be 0 or more');
     if (b.delivery_charge !== undefined && !(Number(b.delivery_charge) >= 0)) throw bad('Delivery charge must be 0 or more');
     if (b.delivery_free_above !== undefined && !(Number(b.delivery_free_above) >= 0)) throw bad('Free delivery amount must be 0 or more');
+    if (b.delivery_min_order !== undefined && !(Number(b.delivery_min_order) >= 0)) throw bad('Minimum order for delivery must be 0 or more');
+    for (const [k, max] of [['shop_lat', 90], ['shop_lng', 180]]) {
+      if (b[k] !== undefined && b[k] !== '' && coord(b[k], max) === null) throw bad('Shop location looks wrong. Paste it like 18.5204, 73.8567');
+    }
+    if (b.delivery_slabs !== undefined) {
+      // Accept a JSON list (or array) of { km, charge }; store a clean, sorted copy.
+      let slabs;
+      try { slabs = typeof b.delivery_slabs === 'string' ? JSON.parse(b.delivery_slabs || '[]') : b.delivery_slabs; } catch { throw bad('Distance charges could not be read'); }
+      if (!Array.isArray(slabs)) throw bad('Distance charges could not be read');
+      slabs = slabs.map((x) => ({ km: Number(x.km), charge: Number(x.charge) }));
+      if (slabs.some((x) => !(x.km > 0 && x.km <= 100))) throw bad('Each distance must be between 0 and 100 km');
+      if (slabs.some((x) => !(x.charge >= 0))) throw bad('Each charge must be 0 or more');
+      slabs.sort((x, y) => x.km - y.km);
+      if (slabs.some((x, i) => i && x.km === slabs[i - 1].km)) throw bad('The same distance is listed twice');
+      b.delivery_slabs = JSON.stringify(slabs);
+    }
     if (b.upi_id && !/^[\w.\-]{2,}@[a-zA-Z][\w.\-]*$/.test(String(b.upi_id).trim())) throw bad('UPI ID looks wrong (expected something like name@bank)');
     const stmts = EDITABLE_SETTING_KEYS.filter((k) => b[k] !== undefined).map((k) => ({
       sql: 'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',

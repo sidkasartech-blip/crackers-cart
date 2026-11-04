@@ -111,6 +111,10 @@ const DEFAULT_SETTINGS = {
   delivery_charge: '0',        // ₹ added to the bill for home delivery
   delivery_free_above: '0',    // ₹ order value for free delivery (0 = never free unless charge is 0)
   delivery_note: '',           // shown at checkout, e.g. "We deliver within 5 km"
+  delivery_min_order: '0',     // ₹ minimum items total for home delivery (0 = none)
+  shop_lat: '',                // shop location; when set, delivery is charged by distance
+  shop_lng: '',
+  delivery_slabs: '[{"km":3,"charge":0},{"km":6,"charge":40},{"km":10,"charge":80}]', // up to km → ₹; beyond the last = no delivery
   online_sells_store_stock: '1', // online orders may use offline-store stock once online stock runs out
   cash_enabled: '1',             // customers may choose to pay in cash (at the counter / on delivery)
 };
@@ -195,6 +199,10 @@ const MIGRATIONS = [
   // Counter bills can use an agreed rate per item and/or an agreed final amount.
   { table: 'order_items', column: 'list_price', sql: 'ALTER TABLE order_items ADD COLUMN list_price INTEGER NOT NULL DEFAULT 0' }, // 0 = same as price
   { table: 'orders', column: 'adjustment', sql: 'ALTER TABLE orders ADD COLUMN adjustment INTEGER NOT NULL DEFAULT 0' },      // + extra / - less, in paise
+  // Delivery pin the customer marked on the map, and the distance used for the charge.
+  { table: 'orders', column: 'delivery_lat', sql: 'ALTER TABLE orders ADD COLUMN delivery_lat REAL' },
+  { table: 'orders', column: 'delivery_lng', sql: 'ALTER TABLE orders ADD COLUMN delivery_lng REAL' },
+  { table: 'orders', column: 'delivery_km', sql: 'ALTER TABLE orders ADD COLUMN delivery_km REAL' },
 ];
 async function migrate(db) {
   const client = db.client;

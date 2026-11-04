@@ -79,6 +79,10 @@
         <div id="addressFields" class="hidden">
           <label class="field"><span>Delivery address <i class="req">*</i></span>
             <textarea class="input" id="delAddress" autocomplete="street-address" maxlength="500" rows="3" placeholder="House / flat no., street, area, city"></textarea></label>
+          <div class="loc-row hidden" id="locRow">
+            <div><b>Delivery location <i class="req">*</i></b><div class="small muted" id="locStatus">Not marked yet</div></div>
+            <button type="button" class="btn" id="locBtn">📍 Mark on map</button>
+          </div>
           <div class="row">
             <label class="field"><span>Landmark</span><input class="input" id="delLandmark" maxlength="120" placeholder="Near…"></label>
             <label class="field"><span>Pincode</span><input class="input" id="delPincode" inputmode="numeric" autocomplete="postal-code" maxlength="6" placeholder="6 digits"></label>
@@ -94,6 +98,21 @@
       </aside>
     </div>
   </main>
+
+  <dialog class="map-dlg" id="mapDlg" aria-label="Mark your delivery location">
+    <div class="map-head">
+      <b>Mark your delivery location</b>
+      <button type="button" class="btn btn-sm btn-ghost" id="mapClose" aria-label="Close">✕</button>
+    </div>
+    <div class="map-box" id="mapBox"></div>
+    <div class="map-foot">
+      <div class="small muted" id="mapInfo">Drag the pin to your house, or tap the map.</div>
+      <div class="map-btns">
+        <button type="button" class="btn" id="mapHere">📍 Use my current location</button>
+        <button type="button" class="btn btn-primary" id="mapOk">Confirm location</button>
+      </div>
+    </div>
+  </dialog>
 
   <script src="/js/common.js"></script>
   <script src="/js/checkout.js"></script>

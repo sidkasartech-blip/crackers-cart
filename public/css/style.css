@@ -323,6 +323,24 @@ dialog.sheet[open] { display: flex; animation: sheet-up .28s cubic-bezier(.2,.9,
 .ctr-rate.changed input { border-color: var(--brand); background: var(--brand-soft); color: var(--text); }
 .ctr-rate s { font-weight: 600; }
 .ctr-final { margin-top: 10px; }
+.zones { padding: 12px; border: 1px solid var(--line); border-radius: 14px; margin-bottom: 14px; background: var(--surface-2); }
+.zones-head { margin-bottom: 10px; }
+.slab-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.slab-row .input { width: 72px; min-height: 40px; padding: 6px 8px; flex: 0 0 auto; }
+.slab-row span { white-space: nowrap; }
+.loc-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 12px; margin-bottom: 14px; border: 1.5px dashed var(--line); border-radius: 14px; }
+.warn-text { color: var(--warn); font-weight: 700; }
+.err-text { color: var(--danger); font-weight: 700; }
+.ok-text { color: var(--ok); font-weight: 700; }
+dialog.map-dlg { width: min(720px, 100vw); max-width: 100vw; height: min(640px, 92dvh); padding: 0; display: none; flex-direction: column; overflow: hidden; box-sizing: border-box; }
+@media (max-width: 640px) { dialog.map-dlg { width: 100vw; } }
+dialog.map-dlg[open] { display: flex; }
+@media (max-width: 640px) { dialog.map-dlg { margin: auto auto 0; border-radius: 22px 22px 0 0; height: 88dvh; } }
+.map-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.map-box { flex: 1; min-height: 240px; background: var(--surface-2); }
+.map-foot { padding: 10px 14px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+.map-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.map-btns .btn { min-width: 0; white-space: normal; line-height: 1.2; padding: 0 10px; }
 .ctr-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
 .ctr-actions [data-pay="qr"] { grid-column: 1 / -1; }
 .qr-pair { display: grid; gap: 20px; }

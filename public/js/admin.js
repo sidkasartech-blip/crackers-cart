@@ -435,7 +435,8 @@
       <div class="small muted" style="margin-bottom:8px">${esc(fmtTime(o.createdAt))}${o.customerName ? ' · ' + esc(o.customerName) : ''}${o.customerPhone ? ' · ' + esc(o.customerPhone) : ''}</div>
       ${o.fulfilment === 'delivery' ? `<div class="banner ok" style="margin:0 0 12px;font-weight:500"><b>🚚 Deliver to:</b> ${esc(o.customerName)}${o.customerPhone ? ` · <a href="tel:${esc(o.customerPhone)}">${esc(o.customerPhone)}</a>` : ''}<br>
         ${esc(o.deliveryAddress)}${o.deliveryLandmark ? `<br>Landmark: ${esc(o.deliveryLandmark)}` : ''}${o.deliveryPincode ? `<br>Pincode: ${esc(o.deliveryPincode)}` : ''}
-        <br><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([o.deliveryAddress, o.deliveryLandmark, o.deliveryPincode].filter(Boolean).join(', '))}" target="_blank" rel="noopener">Open in Maps ↗</a></div>`
+        ${o.deliveryKm != null ? `<br>About ${o.deliveryKm} km from the shop` : ''}
+        <br><a href="${o.deliveryLat != null ? `https://www.google.com/maps/dir/?api=1&destination=${o.deliveryLat},${o.deliveryLng}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([o.deliveryAddress, o.deliveryLandmark, o.deliveryPincode].filter(Boolean).join(', '))}`}" target="_blank" rel="noopener">${o.deliveryLat != null ? 'Navigate to the customer’s pin ↗' : 'Open in Maps ↗'}</a></div>`
         : '<div class="small" style="margin-bottom:8px">🏪 Pickup at store</div>'}
       <table class="data"><thead><tr><th>Item</th><th class="r">Rate</th><th class="r">Qty</th><th class="r">Amount</th></tr></thead><tbody>
         ${o.lines.map((l) => `<tr><td>${esc(l.name)}</td><td class="r">${l.listPrice && l.listPrice !== l.price ? `<s class="muted small">${money(l.listPrice)}</s> ` : ''}${money(l.price)}</td><td class="r">${l.qty}</td><td class="r">${money(l.total)}</td></tr>`).join('')}
@@ -563,7 +564,69 @@
       if (!el.name) continue;
       if (el.type === 'checkbox') el.checked = s[el.name] === '1'; else el.value = s[el.name] ?? '';
     }
+    let slabs = [];
+    try { slabs = JSON.parse(s.delivery_slabs || '[]'); } catch { /* ignore */ }
+    renderSlabs(slabs);
+    $('#shopLoc').value = s.shop_lat && s.shop_lng ? `${s.shop_lat}, ${s.shop_lng}` : '';
+    showShopLoc();
   }
+
+  /* shop location: accepts "lat, lng" or a Google Maps link containing @lat,lng or ?q=lat,lng */
+  function parseLatLng(text) {
+    const t = String(text || '');
+    const m = t.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || t.match(/[?&](?:q|query|ll|destination)=(-?\d+\.\d+)(?:,|%2C)\s*(-?\d+\.\d+)/i)
+      || t.match(/(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{1,3}\.\d+)/);
+    if (!m) return null;
+    const lat = Number(m[1]); const lng = Number(m[2]);
+    return Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : null;
+  }
+  function showShopLoc() {
+    const f = $('#settingsForm');
+    const raw = $('#shopLoc').value.trim();
+    const p = parseLatLng(raw);
+    f.shop_lat.value = p ? p.lat.toFixed(6) : '';
+    f.shop_lng.value = p ? p.lng.toFixed(6) : '';
+    $('#shopLocMsg').innerHTML = p
+      ? `✓ Set. <a href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}" target="_blank" rel="noopener">Check it on Google Maps ↗</a>`
+      : raw ? 'Could not read that. Paste coordinates like 18.5204, 73.8567 or a Google Maps link.' : 'Not set: distance charges are off.';
+  }
+  $('#shopLoc').addEventListener('input', showShopLoc);
+  $('#shopLocHere').addEventListener('click', () => {
+    if (!navigator.geolocation) { toast('This device cannot share its location', true); return; }
+    $('#shopLocMsg').textContent = 'Finding your location…';
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { $('#shopLoc').value = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`; showShopLoc(); toast('Location set. Press Save settings.'); },
+      () => { $('#shopLocMsg').textContent = 'Could not get your location. Allow location access, or paste it from Google Maps.'; },
+      { enableHighAccuracy: true, timeout: 15000 },
+    );
+  });
+
+  /* distance bands editor: rows of "up to km → ₹", kept in the hidden delivery_slabs field */
+  function renderSlabs(slabs) {
+    $('#slabRows').innerHTML = slabs.map((x) => slabRow(x)).join('');
+    syncSlabs();
+  }
+  function slabRow(x = { km: '', charge: '' }) {
+    return `<div class="slab-row">
+      <span class="small muted">Up to</span><input class="input num" data-s="km" type="number" min="0.5" step="0.5" value="${esc(x.km)}" aria-label="Kilometres">
+      <span class="small muted">km →&nbsp;₹</span><input class="input num" data-s="charge" type="number" min="0" step="1" value="${esc(x.charge)}" aria-label="Charge">
+      <button type="button" class="btn btn-sm btn-ghost btn-danger" data-sdel aria-label="Remove">✕</button>
+    </div>`;
+  }
+  function syncSlabs() {
+    const slabs = $$('#slabRows .slab-row').map((r) => ({ km: Number($('[data-s=km]', r).value), charge: Number($('[data-s=charge]', r).value) || 0 }))
+      .filter((x) => x.km > 0);
+    $('#settingsForm').delivery_slabs.value = JSON.stringify(slabs);
+  }
+  $('#addSlab').addEventListener('click', () => {
+    $('#slabRows').insertAdjacentHTML('beforeend', slabRow());
+    $('#slabRows .slab-row:last-child [data-s=km]').focus();
+  });
+  $('#slabRows').addEventListener('input', syncSlabs);
+  $('#slabRows').addEventListener('click', (e) => {
+    const d = e.target.closest('[data-sdel]');
+    if (d) { d.closest('.slab-row').remove(); syncSlabs(); }
+  });
   $('#settingsForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
