@@ -66,6 +66,30 @@ const Cart = {
   count() { return Object.values(this.get()).reduce((s, q) => s + q, 0); },
 };
 
+/** WhatsApp / call links for the shop (Indian numbers: adds 91 when a 10-digit number is given). */
+function shopContact(s, message = '') {
+  const digits = (v) => String(v || '').replace(/\D/g, '');
+  const intl = (d) => (d.length === 10 ? `91${d}` : d.replace(/^0+/, ''));
+  const phone = digits(s.phone);
+  const wa = digits(s.whatsapp) || phone;
+  return {
+    call: phone ? `tel:+${intl(phone)}` : '',
+    whatsapp: wa ? `https://wa.me/${intl(wa)}${message ? `?text=${encodeURIComponent(message)}` : ''}` : '',
+    phoneText: s.phone || '',
+  };
+}
+function contactButtons(s, message, { label = 'Questions? Contact the shop' } = {}) {
+  const c = shopContact(s, message);
+  if (!c.call && !c.whatsapp) return '';
+  return `<div class="contact-box no-print">
+    <div class="small muted">${esc(label)}</div>
+    <div class="contact-btns">
+      ${c.whatsapp ? `<a class="btn wa" href="${esc(c.whatsapp)}" target="_blank" rel="noopener">💬 WhatsApp</a>` : ''}
+      ${c.call ? `<a class="btn" href="${esc(c.call)}">📞 Call ${esc(c.phoneText)}</a>` : ''}
+    </div>
+  </div>`;
+}
+
 function thumbHtml(item) {
   if (item.image) return `<img src="${esc(item.image)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'ph',textContent:'🎆'}))">`;
   const initials = String(item.name || '?').split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();

@@ -57,6 +57,8 @@
     $('#loginView').classList.add('hidden');
     $('#appView').classList.remove('hidden');
     $('#logoutBtn').classList.remove('hidden');
+    $('#alertBtn').classList.remove('hidden');
+    startOrderWatch();
     $('#pwWarn').classList.toggle('hidden', !me.passwordIsDefault);
     await loadCategories();
     const s = await api('/api/admin/settings');
@@ -65,6 +67,83 @@
     const initial = (location.hash || '').slice(1);
     showTab($(`[data-tab="${initial}"]`) ? initial : 'dashboard');
   }
+
+  /* ---------- live alerts for new customer orders (while this page is open) ---------- */
+  const ALERT_KEY = 'cc_alerts_v1';
+  let alertsOn = safeGet(ALERT_KEY, false);
+  let lastSeenId = null;
+  let unseen = 0;
+  let watchTimer = null;
+  let audioCtx = null;
+  const baseTitle = document.title;
+  function paintAlertBtn() {
+    $('#alertBtn').innerHTML = alertsOn ? '🔔<span class="hide-sm"> Alerts on</span>' : '🔕<span class="hide-sm"> Alerts off</span>';
+    $('#alertBtn').classList.toggle('btn-primary', alertsOn);
+  }
+  function chime() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const t = audioCtx.currentTime;
+      [880, 1175, 1568].forEach((f, i) => {
+        const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+        o.frequency.value = f; o.type = 'sine';
+        g.gain.setValueAtTime(0.0001, t + i * 0.18); g.gain.exponentialRampToValueAtTime(0.35, t + i * 0.18 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.18 + 0.35);
+        o.connect(g).connect(audioCtx.destination); o.start(t + i * 0.18); o.stop(t + i * 0.18 + 0.4);
+      });
+    } catch { /* no sound available */ }
+  }
+  async function phoneNotify(title, body) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration('/sw.js');
+      if (reg) await reg.showNotification(title, { body, tag: 'order', renotify: true, icon: '/vendor/leaflet/images/marker-icon-2x.png' });
+      else new Notification(title, { body });
+    } catch { /* some browsers only allow this for installed apps */ }
+  }
+  $('#alertBtn').addEventListener('click', async () => {
+    alertsOn = !alertsOn;
+    safeSet(ALERT_KEY, alertsOn);
+    paintAlertBtn();
+    if (alertsOn) {
+      chime(); // also unlocks sound on phones (needs a tap)
+      try { if ('serviceWorker' in navigator) await navigator.serviceWorker.register('/sw.js'); } catch { /* optional */ }
+      if ('Notification' in window && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch { /* ignore */ } }
+      toast('Alerts on: keep this page open to hear new orders');
+    }
+  });
+  async function checkNewOrders() {
+    try {
+      const r = await api(lastSeenId === null ? '/api/admin/orders/new' : `/api/admin/orders/new?after=${lastSeenId}`);
+      if (lastSeenId === null) { lastSeenId = r.lastId; return; }
+      lastSeenId = Math.max(lastSeenId, r.lastId);
+      if (!r.orders.length) return;
+      unseen += r.orders.length;
+      const o = r.orders[r.orders.length - 1];
+      const what = `${o.billNo} · ${money(o.total)}${o.fulfilment === 'delivery' ? ' · 🚚 delivery' : o.channel === 'store' ? ' · 🏪 in shop' : ''}`;
+      $('#newOrderBanner').textContent = `🛒 ${unseen === 1 ? 'New order' : `${unseen} new orders`}: ${what}. Tap to view`;
+      $('#newOrderBanner').classList.remove('hidden');
+      document.title = `(${unseen}) New order · ${baseTitle}`;
+      if (state.tab === 'orders') loadOrders();
+      if (state.tab === 'dashboard') loadDashboard();
+      if (alertsOn) {
+        chime();
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        phoneNotify(`New order ${o.billNo}`, `${money(o.total)}${o.customerName ? ` · ${o.customerName}` : ''}${o.fulfilment === 'delivery' ? ' · home delivery' : ''}`);
+      }
+    } catch (e) { if (e.status === 401) stopOrderWatch(); }
+  }
+  function startOrderWatch() {
+    paintAlertBtn();
+    if (watchTimer) return;
+    checkNewOrders();
+    watchTimer = setInterval(checkNewOrders, 20000);
+  }
+  function stopOrderWatch() { clearInterval(watchTimer); watchTimer = null; }
+  $('#newOrderBanner').addEventListener('click', () => {
+    unseen = 0; document.title = baseTitle;
+    $('#newOrderBanner').classList.add('hidden');
+    $('#orderStatus').value = 'pending';
+  });
 
   $('#loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -75,7 +154,7 @@
       boot();
     } catch (err) { showErr($('#loginErr'), err.message); }
   });
-  $('#logoutBtn').addEventListener('click', async () => { await api('/api/admin/logout', { method: 'POST' }); boot(); });
+  $('#logoutBtn').addEventListener('click', async () => { stopOrderWatch(); await api('/api/admin/logout', { method: 'POST' }); $('#alertBtn').classList.add('hidden'); boot(); });
 
   // Any 401 mid-session sends us back to the login screen.
   window.addEventListener('unhandledrejection', (e) => {
@@ -635,6 +714,19 @@
       toast('Settings saved');
     } catch (err) { toast(err.message, true); }
   });
+  // Telegram helpers
+  $('#tgFind').addEventListener('click', async () => {
+    const f = $('#settingsForm');
+    try {
+      const r = await api('/api/admin/telegram/find-chat', { method: 'POST', body: { token: f.telegram_bot_token.value.trim() } });
+      f.telegram_chat_id.value = r.chats[0].id;
+      toast(`Found ${r.chats[0].name || 'your chat'}. Now press Save settings.`);
+    } catch (err) { toast(err.message, true); }
+  });
+  $('#tgTest').addEventListener('click', async () => {
+    try { await api('/api/admin/telegram/test', { method: 'POST' }); toast('Test message sent. Check Telegram.'); } catch (err) { toast(err.message, true); }
+  });
+
   $('#pwForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {

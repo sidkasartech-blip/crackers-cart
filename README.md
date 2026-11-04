@@ -84,6 +84,12 @@ Delivery bills show a 🚚 tag in **Bills**, with the address, a call link and a
 - **In-store QR** (Store QR tab, second poster) opens the shop in "in the shop" mode: no delivery option, and bills are tagged 🏪 In store and take Store stock first. The normal QR / link stays online-first.
 - **Bills** can be filtered to *Shop only*, the dashboard splits today's sales into online and shop, and the CSV export has a *Sold* column.
 
+## New-order alerts and contact
+
+- **Telegram alerts (recommended):** Settings → *Order alerts on your phone*. Create a bot with @BotFather (`/newbot`), paste its token, press *Start* in your bot, then *Find my chat ID* → *Save settings* → *Send test message*. Every new online or in-store order is then messaged to you instantly (items, total, cash/UPI, customer, delivery address and a Maps link), even when the app is closed. Counter bills aren't sent. The token is never shown again in full, sent to customers, or put in backups. If Telegram is down, orders still go through.
+- **Live alerts in admin:** tap 🔔 in the admin header (once per device). While the admin page is open it checks every 20 s, plays a chime, vibrates, shows a banner and the tab title "(1) New order", and a phone notification where the browser allows it.
+- **Contact for customers:** fill *Phone*, *WhatsApp number* and *Address* in Settings. Bills get 💬 WhatsApp / 📞 Call buttons and a **Send my order to the shop on WhatsApp** button (pre-filled with the order), and the shop page shows a contact footer.
+
 ## Payments: UPI or cash
 
 At checkout customers choose **UPI** or **Cash** (at the counter for pickup, on delivery for home delivery). Switch cash off in Settings → Payment.

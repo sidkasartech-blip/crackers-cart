@@ -14,7 +14,7 @@ async function collect(q, { images = false } = {}) {
   const has = new Set(tables.map((t) => t.name));
   const all = (sql, t) => (has.has(t) ? q.all(sql) : Promise.resolve([]));
   const [settings, categories, items, discounts, orders, orderItems, imgs] = await Promise.all([
-    all("SELECT key, value FROM settings WHERE key NOT IN ('admin_password')", 'settings'),
+    all("SELECT key, value FROM settings WHERE key NOT IN ('admin_password', 'telegram_bot_token')", 'settings'),
     all('SELECT * FROM categories', 'categories'),
     all('SELECT * FROM items', 'items'),
     all('SELECT * FROM discounts', 'discounts'),

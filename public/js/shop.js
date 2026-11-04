@@ -23,6 +23,8 @@
     $('#tagline').textContent = s.tagline || '';
     if (s.shop_open !== '1') { $('#closed').textContent = s.closed_message; $('#closed').classList.remove('hidden'); }
     if (AT_STORE) { $('#inStore').classList.remove('hidden'); }
+    $('#shopFoot').innerHTML = `${contactButtons(s, `Hi ${s.shop_name}, `, { label: 'Need help choosing or ordering?' })}
+      ${s.address ? `<div class="small muted" style="margin-top:8px">📍 ${esc(s.address)}</div>` : ''}`;
     const last = safeGet('cc_last_bill', null);
     if (last && last.id) {
       const lb = $('#lastBill');

@@ -6,15 +6,18 @@ const QRCode = require('qrcode');
 const { getSettings } = require('./db');
 const { computeBill } = require('./pricing');
 const auth = require('./auth');
+const { telegram, notifyNewOrder } = require('./notify');
 const backups = require('./backup');
 
 const PUBLIC_SETTING_KEYS = [
   'shop_name', 'tagline', 'phone', 'address', 'gstin', 'tax_percent', 'bill_footer',
   'min_order', 'shop_open', 'closed_message',
   'delivery_enabled', 'delivery_charge', 'delivery_free_above', 'delivery_note', 'cash_enabled',
-  'delivery_min_order', 'shop_lat', 'shop_lng', 'delivery_slabs',
+  'delivery_min_order', 'shop_lat', 'shop_lng', 'delivery_slabs', 'whatsapp',
 ];
-const EDITABLE_SETTING_KEYS = [...PUBLIC_SETTING_KEYS, 'online_sells_store_stock', 'upi_id', 'upi_name', 'bill_prefix', 'site_url'];
+const EDITABLE_SETTING_KEYS = [...PUBLIC_SETTING_KEYS, 'online_sells_store_stock', 'upi_id', 'upi_name', 'bill_prefix', 'site_url',
+  'telegram_bot_token', 'telegram_chat_id'];
+const SECRET_MASK = '••••••';
 
 // Servers (e.g. Vercel) run in UTC; "today" on the dashboard should follow the shop's clock. Default: India (+5:30).
 const TZ_OFFSET_MIN = Number.isFinite(Number(process.env.SHOP_TZ_OFFSET_MINUTES)) && process.env.SHOP_TZ_OFFSET_MINUTES !== ''
@@ -322,6 +325,8 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
     });
   }
 
+  const siteBase = (req, settings) => (settings.site_url || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+
   app.post('/api/orders', async (req, res) => {
     const body = req.body || {};
     const settings = await getSettings(db);
@@ -329,6 +334,7 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
     // Customers can only create 'online' or 'store' (in-store QR) bills; 'counter' is staff-only.
     const channel = body.channel === 'store' ? 'store' : 'online';
     const { id, token } = await createOrder(body, settings, channel);
+    await notifyNewOrder(db, settings, id, siteBase(req, settings));
     res.status(201).json({ id, token });
   });
 
@@ -392,6 +398,41 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
   admin.get('/dashboard', async (req, res, next) => { await backups.ensureDaily(db).catch((e) => console.error('daily backup failed', e)); next(); });
   const snapshotBefore = (label) => async (req, res, next) => { await backups.snapshot(db, label(req)); next(); };
   app.use('/api/admin', admin);
+
+  /* ----- order alerts ----- */
+  // New customer orders (not counter bills) after a given bill id; used by the admin panel's live alerts.
+  admin.get('/orders/new', async (req, res) => {
+    // No 'after' = just tell me the latest id (first check when the page opens).
+    const hasAfter = req.query.after !== undefined && req.query.after !== '';
+    const rows = hasAfter
+      ? await db.all("SELECT * FROM orders WHERE id > ? AND channel != 'counter' ORDER BY id LIMIT 20", [Number(req.query.after) || 0])
+      : [];
+    const last = await db.get('SELECT COALESCE(MAX(id), 0) AS id FROM orders');
+    res.json({ lastId: last.id, orders: await Promise.all(rows.map((o) => orderOut(o, null, false))) });
+  });
+  // Finds the chat ID after the owner has sent any message to their bot.
+  admin.post('/telegram/find-chat', async (req, res) => {
+    const s = await getSettings(db);
+    const token = (req.body && req.body.token && !String(req.body.token).startsWith(SECRET_MASK) ? String(req.body.token) : s.telegram_bot_token || '').trim();
+    if (!token) throw bad('Paste the bot token first');
+    let updates;
+    try { updates = await telegram(token, 'getUpdates', { limit: 20 }); } catch (e) { throw bad(e.message); }
+    const chats = [];
+    for (const u of updates || []) {
+      const c = (u.message || u.channel_post || {}).chat;
+      if (c && !chats.some((x) => x.id === c.id)) chats.push({ id: String(c.id), name: c.title || [c.first_name, c.last_name].filter(Boolean).join(' ') || c.username || '' });
+    }
+    if (!chats.length) throw bad('No messages yet. Open your bot in Telegram, press Start (or send "hi"), then try again.');
+    res.json({ chats });
+  });
+  admin.post('/telegram/test', async (req, res) => {
+    const s = await getSettings(db);
+    if (!s.telegram_bot_token || !s.telegram_chat_id) throw bad('Save the bot token and chat ID first');
+    try {
+      await telegram(s.telegram_bot_token, 'sendMessage', { chat_id: s.telegram_chat_id, text: `✅ ${s.shop_name}: order alerts are working. You'll get a message here for every new order.` });
+    } catch (e) { throw bad(e.message); }
+    res.json({ ok: true });
+  });
 
   /* ----- counter billing (store staff) ----- */
   admin.post('/counter/quote', async (req, res) => {
@@ -733,10 +774,15 @@ function createApp(db, { dbUrl = '', dbSource = '' } = {}) {
   /* ----- settings ----- */
   admin.get('/settings', async (req, res) => {
     const s = await getSettings(db);
-    res.json(Object.fromEntries(EDITABLE_SETTING_KEYS.map((k) => [k, s[k] ?? ''])));
+    const out = Object.fromEntries(EDITABLE_SETTING_KEYS.map((k) => [k, s[k] ?? '']));
+    if (out.telegram_bot_token) out.telegram_bot_token = SECRET_MASK + out.telegram_bot_token.slice(-4);
+    res.json(out);
   });
   admin.put('/settings', async (req, res) => {
     const b = req.body || {};
+    if (typeof b.telegram_bot_token === 'string' && b.telegram_bot_token.startsWith(SECRET_MASK)) delete b.telegram_bot_token; // unchanged
+    if (b.whatsapp && !/^\+?[\d\s-]{10,16}$/.test(String(b.whatsapp).trim())) throw bad('WhatsApp number looks wrong (10-digit mobile)');
+    if (b.telegram_chat_id && !/^-?\d{3,20}$/.test(String(b.telegram_chat_id).trim())) throw bad('Telegram chat ID should be a number');
     if (b.tax_percent !== undefined && !(Number(b.tax_percent) >= 0 && Number(b.tax_percent) <= 100)) throw bad('Tax must be 0–100');
     if (b.min_order !== undefined && !(Number(b.min_order) >= 0)) throw bad('Minimum order must be 0 or more');
     if (b.delivery_charge !== undefined && !(Number(b.delivery_charge) >= 0)) throw bad('Delivery charge must be 0 or more');

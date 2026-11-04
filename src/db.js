@@ -112,6 +112,9 @@ const DEFAULT_SETTINGS = {
   delivery_free_above: '0',    // ₹ order value for free delivery (0 = never free unless charge is 0)
   delivery_note: '',           // shown at checkout, e.g. "We deliver within 5 km"
   delivery_min_order: '0',     // ₹ minimum items total for home delivery (0 = none)
+  whatsapp: '',                // shop WhatsApp number for customers (blank = use phone)
+  telegram_bot_token: '',      // new-order alerts (secret; never sent to customers or put in backups)
+  telegram_chat_id: '',
   shop_lat: '',                // shop location; when set, delivery is charged by distance
   shop_lng: '',
   delivery_slabs: '[{"km":3,"charge":0},{"km":6,"charge":40},{"km":10,"charge":80}]', // up to km → ₹; beyond the last = no delivery

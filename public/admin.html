@@ -21,6 +21,7 @@
       </div>
       <span class="spacer"></span>
       <a class="btn btn-sm" href="/" target="_blank" rel="noopener"><span class="hide-sm">View shop ↗</span><span class="show-sm">Shop ↗</span></a>
+      <button class="btn btn-sm hidden" id="alertBtn" type="button" title="Sound and notification for new orders while this page is open">🔔<span class="hide-sm"> Alerts off</span></button>
       <button class="btn btn-sm btn-ghost hidden" id="logoutBtn">Log out</button>
     </div>
   </header>
@@ -50,6 +51,7 @@
         <button data-tab="settings">Settings</button>
         <button data-tab="qr">Store QR</button>
       </nav>
+      <a id="newOrderBanner" class="banner ok hidden new-order" href="#orders" data-goto="orders"></a>
       <div id="dbWarn" class="banner danger hidden">⚠️ This site is using a database made for one deployment only. Your next deployment will switch to a new, empty database. Open <a href="#" data-goto="settings">Settings</a> for details before adding data.</div>
       <div id="pwWarn" class="banner warn hidden">You're using the default password. Change it in <a href="#" data-goto="settings">Settings</a>.</div>
       <div id="upiWarn" class="banner warn hidden">No UPI ID set yet — bills won't show a payment QR. Add it in <a href="#" data-goto="settings">Settings</a>.</div>
@@ -162,12 +164,33 @@
             <label class="field"><span>Tagline</span><input class="input" name="tagline"></label>
           </div>
           <div class="row">
-            <label class="field"><span>Phone</span><input class="input" name="phone"></label>
+            <label class="field"><span>Phone (shown to customers)</span><input class="input" name="phone" type="tel" placeholder="98765 43210"></label>
+            <label class="field"><span>WhatsApp number (blank = same as phone)</span><input class="input" name="whatsapp" type="tel" placeholder="98765 43210"></label>
+          </div>
+          <div class="row">
             <label class="field"><span>GSTIN (optional)</span><input class="input" name="gstin"></label>
           </div>
           <label class="field"><span>Address</span><input class="input" name="address"></label>
           <label class="check"><input type="checkbox" name="shop_open"> Taking orders (untick to pause the shop)</label>
           <label class="field"><span>Message when paused</span><input class="input" name="closed_message"></label>
+
+          <h3 style="margin:18px 0 12px">Order alerts on your phone (Telegram)</h3>
+          <div class="zones">
+            <ol class="small steps-list">
+              <li>In Telegram, open <b>@BotFather</b>, send <code>/newbot</code>, pick any name. It replies with a <b>token</b>: paste it below.</li>
+              <li>Open your new bot (BotFather gives the link), press <b>Start</b>.</li>
+              <li>Press <b>Find my chat ID</b>, then <b>Save settings</b>, then <b>Send test message</b>.</li>
+            </ol>
+            <div class="row">
+              <label class="field"><span>Bot token</span><input class="input" name="telegram_bot_token" autocomplete="off" placeholder="123456789:ABC…"></label>
+              <label class="field"><span>Chat ID</span><input class="input" name="telegram_chat_id" inputmode="numeric" autocomplete="off"></label>
+            </div>
+            <div class="row" style="gap:8px">
+              <button type="button" class="btn btn-sm" id="tgFind" style="flex:0 0 auto">Find my chat ID</button>
+              <button type="button" class="btn btn-sm" id="tgTest" style="flex:0 0 auto">Send test message</button>
+            </div>
+            <p class="small muted" style="margin:8px 0 0">Every new online or in-store order is sent to your Telegram instantly, with items, amount, delivery address and a map link. Counter bills you make yourself are not sent.</p>
+          </div>
 
           <h3 style="margin:18px 0 12px">Payment</h3>
           <label class="check"><input type="checkbox" name="cash_enabled"> Customers can choose to pay in cash (at the counter / on delivery)</label>

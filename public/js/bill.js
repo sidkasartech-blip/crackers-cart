@@ -40,6 +40,22 @@
       ${apps ? `<div class="small muted no-print" style="margin-top:14px">Or tap your app to pay ${money(o.total)}:</div>${apps}` : ''}`;
   }
 
+  // Right after a customer orders, offer to send the order to the shop's WhatsApp (an instant heads-up for the shop).
+  function sendToShop(o) {
+    if (o.status !== 'pending' || o.channel === 'counter') return '';
+    const lines = o.lines.map((l) => `• ${l.name} × ${l.qty} = ${money(l.total)}`).join('\n');
+    const where = o.fulfilment === 'delivery'
+      ? `Home delivery to: ${o.customerName}, ${o.customerPhone}\n${o.deliveryAddress}${o.deliveryLandmark ? `, near ${o.deliveryLandmark}` : ''}${o.deliveryPincode ? ` ${o.deliveryPincode}` : ''}${o.deliveryLat != null ? `\nMap: https://maps.google.com/?q=${o.deliveryLat},${o.deliveryLng}` : ''}`
+      : 'Pickup at store';
+    const msg = `Hi ${o.shop.shop_name}, I placed an order.\nBill: ${o.billNo}\nTotal: ${money(o.total)} (${o.payPref === 'cash' ? 'cash' : 'UPI'})\n${where}\n\n${lines}\n\nBill link: ${location.href}`;
+    const c = shopContact(o.shop, msg);
+    if (!c.whatsapp) return '';
+    return `<div class="send-shop no-print">
+      <a class="btn btn-lg wa btn-block" href="${esc(c.whatsapp)}" target="_blank" rel="noopener">💬 Send my order to the shop on WhatsApp</a>
+      <div class="small muted">So the shop can confirm your order quickly.</div>
+    </div>`;
+  }
+
   function payBlock(o) {
     if (o.status === 'paid') {
       const via = o.paidBy === 'cash' ? ' in cash' : o.paidBy === 'upi' ? ' by UPI' : '';
@@ -97,6 +113,8 @@
       </table>
       <div class="totals-wrap"><table class="totals">${rows.join('')}</table></div>
       ${payBlock(o)}
+      ${sendToShop(o)}
+      ${contactButtons(s, `Hi ${s.shop_name}, about my bill ${o.billNo} (${money(o.total)}): `)}
       ${s.bill_footer ? `<div class="bill-foot">${esc(s.bill_footer)}</div>` : ''}`;
 
     const actions = ['<button class="btn" id="printBtn">Print / Save PDF</button>'];

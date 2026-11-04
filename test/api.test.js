@@ -563,3 +563,73 @@ test('delivery charged by distance from the shop, free from an amount, minimum o
   // Pickup is unaffected.
   assert.equal((await call('POST', '/api/orders', { items: items(1) })).status, 201);
 });
+
+test('order alerts: Telegram message per customer order, token kept secret, failures never block orders', async (t) => {
+  const http = require('node:http');
+  const sent = [];
+  let failNext = false;
+  const tg = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const [, token, method] = req.url.match(/^\/bot([^/]+)\/(\w+)/) || [];
+      res.setHeader('Content-Type', 'application/json');
+      if (token !== '111:SECRET') { res.statusCode = 401; return res.end(JSON.stringify({ ok: false, description: 'Unauthorized' })); }
+      if (method === 'getUpdates') return res.end(JSON.stringify({ ok: true, result: [{ message: { chat: { id: 987654, first_name: 'Ravi' } } }] }));
+      if (failNext) { failNext = false; res.statusCode = 500; return res.end(JSON.stringify({ ok: false, description: 'boom' })); }
+      sent.push(JSON.parse(body));
+      res.end(JSON.stringify({ ok: true, result: {} }));
+    });
+  });
+  await new Promise((r) => tg.listen(0, r));
+  process.env.TELEGRAM_API_BASE = `http://127.0.0.1:${tg.address().port}`;
+  const { call, close } = await setup();
+  t.after(() => { close(); tg.close(); delete process.env.TELEGRAM_API_BASE; });
+  await call('POST', '/api/admin/login', { password: 'admin123' });
+  const item = (await call('GET', '/api/catalog')).data.items.find((i) => i.stock >= 5);
+
+  // Wrong token is reported clearly; right token finds the chat.
+  assert.match((await call('POST', '/api/admin/telegram/find-chat', { token: 'bad' })).data.error, /token is wrong/);
+  const found = await call('POST', '/api/admin/telegram/find-chat', { token: '111:SECRET' });
+  assert.equal(found.data.chats[0].id, '987654');
+
+  await call('PUT', '/api/admin/settings', { telegram_bot_token: '111:SECRET', telegram_chat_id: '987654', phone: '98765 43210' });
+  // The token never comes back in full, and saving the masked value keeps it.
+  const got = (await call('GET', '/api/admin/settings')).data;
+  assert.ok(got.telegram_bot_token.startsWith('••••••') && !got.telegram_bot_token.includes('111:'));
+  await call('PUT', '/api/admin/settings', { telegram_bot_token: got.telegram_bot_token, shop_name: 'Cypress Fireworks' });
+  assert.equal((await call('POST', '/api/admin/telegram/test')).status, 200);
+  assert.match(sent.pop().text, /order alerts are working/);
+  // Customers and backups never see it.
+  assert.equal((await call('GET', '/api/catalog')).data.settings.telegram_bot_token, undefined);
+  assert.ok(!(await call('GET', '/api/admin/backup.json')).data.settings.some((s) => s.key === 'telegram_bot_token'));
+
+  // A customer order sends one alert with the details.
+  const lastBefore = (await call('GET', '/api/admin/orders/new?after=0')).data.lastId;
+  const o = await call('POST', '/api/orders', { items: [{ itemId: item.id, qty: 2 }], customerName: 'Asha', customerPhone: '9876543210', payment: 'cash' });
+  assert.equal(o.status, 201);
+  const msg = sent.pop();
+  assert.equal(msg.chat_id, '987654');
+  assert.match(msg.text, /New order SC-\d+/);
+  assert.match(msg.text, new RegExp(`${item.name.replace(/[()]/g, '.')} × 2`));
+  assert.match(msg.text, /Asha · 9876543210/);
+  assert.match(msg.text, /Will pay cash/);
+  assert.match(msg.text, /\/admin#orders/);
+
+  // Counter bills (made by staff) don't alert.
+  await call('POST', '/api/admin/counter/bills', { items: [{ itemId: item.id, qty: 1 }], paidBy: 'cash' });
+  assert.equal(sent.length, 0);
+
+  // If Telegram is down, the order still goes through.
+  failNext = true;
+  assert.equal((await call('POST', '/api/orders', { items: [{ itemId: item.id, qty: 1 }] })).status, 201);
+
+  // The admin panel's live check sees the customer orders, not the counter bill.
+  const fresh = (await call('GET', `/api/admin/orders/new?after=${lastBefore}`)).data;
+  assert.equal(fresh.orders.length, 2);
+  assert.ok(fresh.orders.every((x) => x.channel !== 'counter'));
+
+  // Phone and WhatsApp are public (for contact buttons); bad numbers are refused.
+  assert.equal((await call('GET', '/api/catalog')).data.settings.phone, '98765 43210');
+  assert.equal((await call('PUT', '/api/admin/settings', { whatsapp: 'abc' })).status, 400);
+});
